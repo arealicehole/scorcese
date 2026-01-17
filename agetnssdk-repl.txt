@@ -1,0 +1,55 @@
+
+REPL utility
+
+The SDK provides run_demo_loop for quick, interactive testing of an agent's behavior directly in your terminal.
+
+import asyncio
+from agents import Agent, run_demo_loop
+
+async def main() -> None:
+    
+agent = Agent(name="Assistant", instructions="You are a helpful assistant.")
+    
+await run_demo_loop(agent)
+
+if __name__ == "__main__":
+    
+asyncio.run(main())
+
+run_demo_loop prompts for user input in a loop, keeping the conversation history between turns. By default, it streams model output as it is produced. When you run the example above, run_demo_loop starts an interactive chat session. It continuously asks for your input, remembers the entire conversation history between turns (so your agent knows what's been discussed) and automatically streams the agent's responses to you in real-time as they are generated.
+
+To end this chat session, simply type quit or exit (and press Enter) or use the Ctrl-D keyboard shortcut.
+repl
+run_demo_loop async
+
+run_demo_loop(
+    
+agent: Agent[Any],
+    
+*,
+    
+stream: bool = True,
+    
+context: TContext | None = None,
+) -> None
+
+Run a simple REPL loop with the given agent.
+
+This utility allows quick manual testing and debugging of an agent from the command line. Conversation state is preserved across turns. Enter exit or quit to stop the loop.
+
+Parameters:
+Name 	Type 	Description 	Default
+agent 	Agent[Any] 	
+
+The starting agent to run.
+	required
+stream 	bool 	
+
+Whether to stream the agent output.
+	True
+context 	TContext | None 	
+
+Additional context information to pass to the runner.
+	None
+Source code in src/agents/repl.py
+

@@ -1,0 +1,1631 @@
+# Generate Music
+
+> Generate music with or without lyrics using AI models.
+
+### Usage Guide
+
+* This endpoint creates music based on your text prompt
+* Multiple variations will be generated for each request
+* You can control detail level with custom mode and instrumental settings
+
+### Parameter Details
+
+* In Custom Mode (`customMode: true`):
+  * If `instrumental: true`: `style` and `title` are required
+  * If `instrumental: false`: `style`, `prompt`, and `title` are required
+  * Character limits vary by model:
+    * **V4**: `prompt`  3000 characters, `style` 200 characters
+    * **V4\_5 & V4\_5PLUS**: `prompt`  5000 characters, `style` 1000 characters
+    * **V4\_5ALL**: `prompt`  5000 characters, `style` 1000 characters
+    * **V5**: `prompt`  5000 characters, `style` 1000 characters
+  * `title` length limit: 80 characters (all models)
+
+* In Non-custom Mode (`customMode: false`):
+  * Only `prompt` is required regardless of `instrumental` setting
+  * `prompt` length limit: 500 characters
+  * Other parameters should be left empty
+
+### Developer Notes
+
+* Recommendation for new users: Start with `customMode: false` for simpler usage
+* Generated files are retained for 14 days
+* Callback process has three stages: `text` (text generation), `first` (first track complete), `complete` (all tracks complete)
+
+### Optional parameters
+
+* `vocalGender` (string): Vocal gender preference. Use `m` for male, `f` for female. Note: This parameter is only effective when `customMode` is `true`. Based on practice, this parameter can only increase the probability but cannot guarantee adherence to male/female voice instructions.
+* `styleWeight` (number): Strength of adherence to style. Range 0–1, up to 2 decimals. Example: `0.65`.
+* `weirdnessConstraint` (number): Controls creative deviation. Range 0–1, up to 2 decimals. Example: `0.65`.
+* `audioWeight` (number): Balance weight for audio features. Range 0–1, up to 2 decimals. Example: `0.65`.
+* `personaId` (string): Persona ID to apply to the generated music. Use this to apply a specific persona style to your music generation. Only available when Custom Mode is enabled. To generate a persona ID, visit the [Generate Persona](https://docs.kie.ai/suno-api/generate-persona) endpoint.
+
+
+## OpenAPI
+
+````yaml suno-api/suno-api.json post /api/v1/generate
+openapi: 3.0.0
+info:
+  title: Suno API
+  description: kie.ai Suno API Documentation
+  version: 1.0.0
+  contact:
+    name: Technical Support
+    email: support@kie.ai
+servers:
+  - url: https://api.kie.ai
+    description: API Server
+security:
+  - BearerAuth: []
+paths:
+  /api/v1/generate:
+    post:
+      summary: Generate Music
+      description: >-
+        Generate music with or without lyrics using AI models.
+
+
+        ### Usage Guide
+
+        - This endpoint creates music based on your text prompt
+
+        - Multiple variations will be generated for each request
+
+        - You can control detail level with custom mode and instrumental
+        settings
+
+
+        ### Parameter Details
+
+        - In Custom Mode (`customMode: true`):
+          - If `instrumental: true`: `style` and `title` are required
+          - If `instrumental: false`: `style`, `prompt`, and `title` are required
+          - Character limits vary by model:
+            - **V4**: `prompt`  3000 characters, `style` 200 characters
+            - **V4_5 & V4_5PLUS**: `prompt`  5000 characters, `style` 1000 characters
+            - **V4_5ALL**: `prompt`  5000 characters, `style` 1000 characters
+            - **V5**: `prompt`  5000 characters, `style` 1000 characters
+          - `title` length limit: 80 characters (all models)
+
+        - In Non-custom Mode (`customMode: false`):
+          - Only `prompt` is required regardless of `instrumental` setting
+          - `prompt` length limit: 500 characters
+          - Other parameters should be left empty
+
+        ### Developer Notes
+
+        - Recommendation for new users: Start with `customMode: false` for
+        simpler usage
+
+        - Generated files are retained for 14 days
+
+        - Callback process has three stages: `text` (text generation), `first`
+        (first track complete), `complete` (all tracks complete)
+      operationId: generate-music
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - customMode
+                - instrumental
+                - callBackUrl
+                - model
+                - prompt
+              properties:
+                prompt:
+                  type: string
+                  description: >-
+                    A description of the desired audio content.  
+
+                    - In Custom Mode (`customMode: true`): Required if
+                    `instrumental` is `false`. The prompt will be strictly used
+                    as the lyrics and sung in the generated track. Character
+                    limits by model:  
+                      - **V4**: Maximum 3000 characters  
+                      - **V4_5 & V4_5PLUS**: Maximum 5000 characters  
+                      - **V4_5ALL**: Maximum 5000 characters  
+                      - **V5**: Maximum 5000 characters  
+                      Example: "A calm and relaxing piano track with soft melodies"  
+                    - In Non-custom Mode (`customMode: false`): Always required.
+                    The prompt serves as the core idea, and lyrics will be
+                    automatically generated based on it (not strictly matching
+                    the input). Maximum 500 characters.  
+                      Example: "A short relaxing piano tune"
+                  example: A calm and relaxing piano track with soft melodies
+                style:
+                  type: string
+                  description: >-
+                    Music style specification for the generated audio.  
+
+                    - Required in Custom Mode (`customMode: true`). Defines the
+                    genre, mood, or artistic direction.  
+
+                    - Character limits by model:  
+                      - **V4**: Maximum 200 characters  
+                      - **V4_5 & V4_5PLUS**: Maximum 1000 characters  
+                      - **V4_5ALL**: Maximum 1000 characters  
+                      - **V5**: Maximum 1000 characters  
+                    - Common examples: Jazz, Classical, Electronic, Pop, Rock,
+                    Hip-hop, etc.
+                  example: Classical
+                title:
+                  type: string
+                  description: |-
+                    Title for the generated music track.  
+                    - Required in Custom Mode (`customMode: true`).  
+                    - Max length: 80 characters.  
+                    - Will be displayed in player interfaces and filenames.
+                  example: Peaceful Piano Meditation
+                customMode:
+                  type: boolean
+                  description: >-
+                    Determines if advanced parameter customization is enabled.  
+
+                    - If `true`: Allows detailed control with specific
+                    requirements for `style` and `title` fields.  
+
+                    - If `false`: Simplified mode where only `prompt` is
+                    required and other parameters are ignored.
+                  example: true
+                instrumental:
+                  type: boolean
+                  description: >-
+                    Determines if the audio should be instrumental (no
+                    lyrics).  
+
+                    - In Custom Mode (`customMode: true`):  
+                      - If `true`: Only `style` and `title` are required.  
+                      - If `false`: `style`, `title`, and `prompt` are required (with prompt used as the exact lyrics).  
+                    - In Non-custom Mode (`customMode: false`): No impact on
+                    required fields (prompt only).
+                  example: true
+                model:
+                  type: string
+                  description: |-
+                    The AI model version to use for generation.  
+                    - Required for all requests.  
+                    - Available options:  
+                      - **`V5`**: Superior musical expression, faster generation.  
+                      - **`V4_5PLUS`**: V4.5+ delivers richer sound, new ways to create, max 8 min.  
+                      - **`V4_5`**: V4.5 enables smarter prompts, faster generations, max 8 min.  
+                      - **`V4_5ALL`**: V4.5ALL enables smarter prompts, faster generations, max 8 min.  
+                      - **`V4`**: V4 improves vocal quality, max 4 min.
+                  enum:
+                    - V4
+                    - V4_5
+                    - V4_5PLUS
+                    - V4_5ALL
+                    - V5
+                  example: V4
+                callBackUrl:
+                  type: string
+                  format: uri
+                  description: >-
+                    The URL to receive music generation task completion updates.
+                    Required for all music generation requests.
+
+
+                    - System will POST task status and results to this URL when
+                    generation completes
+
+                    - Callback process has three stages: `text` (text
+                    generation), `first` (first track complete), `complete` (all
+                    tracks complete)
+
+                    - Note: Some cases may skip `text` and `first` stages and
+                    return `complete` directly
+
+                    - Your callback endpoint should accept POST requests with
+                    JSON payload containing task results and audio URLs
+
+                    - For detailed callback format and implementation guide, see
+                    [Music Generation
+                    Callbacks](https://docs.kie.ai/suno-api/generate-music-callbacks)
+
+                    - Alternatively, use the Get Music Details endpoint to poll
+                    task status
+                  example: https://api.example.com/callback
+                negativeTags:
+                  type: string
+                  description: >-
+                    Music styles or traits to exclude from the generated audio.
+                    Optional. Use to avoid specific styles.
+                  example: Heavy Metal, Upbeat Drums
+                vocalGender:
+                  type: string
+                  description: >-
+                    Vocal gender preference for the singing voice. Optional. Use
+                    'm' for male and 'f' for female. Note: This parameter is
+                    only effective when customMode is true. Based on practice,
+                    this parameter can only increase the probability but cannot
+                    guarantee adherence to male/female voice instructions.
+                  enum:
+                    - m
+                    - f
+                  example: m
+                styleWeight:
+                  type: number
+                  description: >-
+                    Strength of adherence to the specified style. Optional.
+                    Range 0–1, up to 2 decimal places.
+                  minimum: 0
+                  maximum: 1
+                  multipleOf: 0.01
+                  example: 0.65
+                weirdnessConstraint:
+                  type: number
+                  description: >-
+                    Controls experimental/creative deviation. Optional. Range
+                    0–1, up to 2 decimal places.
+                  minimum: 0
+                  maximum: 1
+                  multipleOf: 0.01
+                  example: 0.65
+                audioWeight:
+                  type: number
+                  description: >-
+                    Balance weight for audio features vs. other factors.
+                    Optional. Range 0–1, up to 2 decimal places.
+                  minimum: 0
+                  maximum: 1
+                  multipleOf: 0.01
+                  example: 0.65
+                personaId:
+                  type: string
+                  description: >-
+                    Only available when Custom Mode (`customMode: true`) is
+                    enabled. Persona ID to apply to the generated music.
+                    Optional. Use this to apply a specific persona style to your
+                    music generation. 
+
+
+                    To generate a persona ID, use the [Generate
+                    Persona](https://docs.kie.ai/suno-api/generate-persona)
+                    endpoint to create a personalized music Persona based on
+                    generated music.
+                  example: persona_123
+      responses:
+        '200':
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      code:
+                        type: integer
+                        enum:
+                          - 200
+                          - 401
+                          - 402
+                          - 404
+                          - 409
+                          - 422
+                          - 429
+                          - 451
+                          - 455
+                          - 500
+                        description: >-
+                          Response Status Codes
+
+
+                          - **200**: Success - Request has been processed
+                          successfully  
+
+                          - **401**: Unauthorized - Authentication credentials
+                          are missing or invalid  
+
+                          - **402**: Insufficient Credits - Account does not
+                          have enough credits to perform the operation  
+
+                          - **404**: Not Found - The requested resource or
+                          endpoint does not exist  
+
+                          - **409**: Conflict - WAV record already exists  
+
+                          - **422**: Validation Error - The request parameters
+                          failed validation checks  
+
+                          - **429**: Rate Limited - Request limit has been
+                          exceeded for this resource  
+
+                          - **451**: Unauthorized - Failed to fetch the image.
+                          Kindly verify any access limits set by you or your
+                          service provider  
+
+                          - **455**: Service Unavailable - System is currently
+                          undergoing maintenance  
+
+                          - **500**: Server Error - An unexpected error occurred
+                          while processing the request
+                      msg:
+                        type: string
+                        description: Error message when code != 200
+                        example: success
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          taskId:
+                            type: string
+                            description: >-
+                              Task ID for tracking task status. Use this ID with
+                              the "Get Music Details" endpoint to query task
+                              details and results.
+                            example: 5c79****be8e
+        '500':
+          $ref: '#/components/responses/Error'
+      callbacks:
+        audioGenerated:
+          '{request.body#/callBackUrl}':
+            post:
+              description: >-
+                System will call this callback when audio generation is
+                complete.
+
+
+                ### Callback Example
+
+                ```json
+
+                {
+                  "code": 200,
+                  "msg": "All generated successfully.",
+                  "data": {
+                    "callbackType": "complete",
+                    "task_id": "2fac****9f72",
+                    "data": [
+                      {
+                        "id": "e231****-****-****-****-****8cadc7dc",
+                        "audio_url": "https://example.cn/****.mp3",
+                        "stream_audio_url": "https://example.cn/****",
+                        "image_url": "https://example.cn/****.jpeg",
+                        "prompt": "[Verse] Night city lights shining bright",
+                        "model_name": "chirp-v3-5",
+                        "title": "Iron Man",
+                        "tags": "electrifying, rock",
+                        "createTime": "2025-01-01 00:00:00",
+                        "duration": 198.44
+                      },
+                      {
+                        "id": "bd15****1873",
+                        "audio_url": "https://example.cn/****.mp3",
+                        "stream_audio_url": "https://example.cn/****",
+                        "image_url": "https://example.cn/****.jpeg",
+                        "prompt": "[Verse] Night city lights shining bright",
+                        "model_name": "chirp-v3-5",
+                        "title": "Iron Man",
+                        "tags": "electrifying, rock",
+                        "createTime": "2025-01-01 00:00:00",
+                        "duration": 228.28
+                      }
+                    ]
+                  }
+                }
+
+                ```
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        code:
+                          type: integer
+                          description: Status code
+                          example: 200
+                        msg:
+                          type: string
+                          description: Response message
+                          example: All generated successfully
+                        data:
+                          type: object
+                          properties:
+                            callbackType:
+                              type: string
+                              description: >-
+                                Callback type: text (text generation complete),
+                                first (first track complete), complete (all
+                                tracks complete)
+                              enum:
+                                - text
+                                - first
+                                - complete
+                            task_id:
+                              type: string
+                              description: Task ID
+                            data:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  id:
+                                    type: string
+                                    description: Audio unique identifier (audioId)
+                                  audio_url:
+                                    type: string
+                                    description: Audio file URL
+                                  stream_audio_url:
+                                    type: string
+                                    description: Streaming audio URL
+                                  image_url:
+                                    type: string
+                                    description: Cover image URL
+                                  prompt:
+                                    type: string
+                                    description: Generation prompt/lyrics
+                                  model_name:
+                                    type: string
+                                    description: Model name used
+                                  title:
+                                    type: string
+                                    description: Music title
+                                  tags:
+                                    type: string
+                                    description: Music tags
+                                  createTime:
+                                    type: string
+                                    description: Creation time
+                                    format: date-time
+                                  duration:
+                                    type: number
+                                    description: Audio duration (seconds)
+              responses:
+                '200':
+                  description: Callback received successfully
+                  content:
+                    application/json:
+                      schema:
+                        allOf:
+                          - type: object
+                            properties:
+                              code:
+                                type: integer
+                                enum:
+                                  - 200
+                                  - 400
+                                  - 408
+                                  - 413
+                                  - 500
+                                  - 501
+                                  - 531
+                                description: >-
+                                  Response status code
+
+
+                                  - **200**: Success - Request has been
+                                  processed successfully
+
+                                  - **400**: Validation Error - Lyrics contained
+                                  copyrighted material.
+
+                                  - **408**: Rate Limited - Timeout.
+
+                                  - **413**: Conflict - Uploaded audio matches
+                                  existing work of art.
+
+                                  - **500**: Server Error - An unexpected error
+                                  occurred while processing the request
+
+                                  - **501**: Audio generation failed.
+
+                                  - **531**: Server Error - Sorry, the
+                                  generation failed due to an issue. Your
+                                  credits have been refunded. Please try again.
+                              msg:
+                                type: string
+                                description: Error message when code != 200
+                                example: success
+                      example:
+                        code: 200
+                        msg: success
+components:
+  responses:
+    Error:
+      description: Server Error
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: >-
+        All APIs require authentication via Bearer Token.
+
+
+        Get API Key:
+
+        1. Visit [API Key Management Page](https://kie.ai/api-key) to get your
+        API Key
+
+
+        Usage:
+
+        Add to request header:
+
+        Authorization: Bearer YOUR_API_KEY
+
+
+        Note:
+
+        - Keep your API Key secure and do not share it with others
+
+        - If you suspect your API Key has been compromised, reset it immediately
+        in the management page
+
+````
+
+---
+
+> To find navigation and other pages in this documentation, fetch the llms.txt file at: https://docs.kie.ai/llms.txt
+
+# Upload And Cover Audio
+
+> This API covers an audio track by transforming it into a new style while retaining its core melody. It incorporates Suno's upload capability, enabling users to upload an audio file for processing. The expected result is a refreshed audio track with a new style, keeping the original melody intact.
+
+### Parameter Usage Guide
+
+<Note>
+  Character limits vary depending on the model version:
+
+  * **For model V5**: style (max 1000 chars), title (max 100 chars), prompt (max 5000 chars)
+  * **For models V4\_5PLUS and V4\_5**: style (max 1000 chars), title (max 100 chars), prompt (max 5000 chars)
+  * **For model V4\_5ALL**: style (max 1000 chars), title (max 80 chars), prompt (max 5000 chars)
+  * **For model V4**: style (max 200 chars), title (max 80 chars), prompt (max 3000 chars)
+</Note>
+
+* When customMode is true (Custom Mode):
+  * If instrumental is true: style, title and uploadUrl are required
+  * If instrumental is false: style, prompt, title and uploadUrl are required
+  * **Character limits vary by model version** (see note above)
+  * uploadUrl is used to specify the upload location of the audio file; ensure the uploaded audio does not exceed 8 minutes in length.
+* When customMode is false (Non-custom Mode):
+  * Only prompt and uploadUrl are required regardless of instrumental setting
+  * prompt length limit: 500 characters
+  * Other parameters should be left empty
+
+### Developer Notes
+
+1. Recommended settings for new users: Set customMode to false, instrumental to false, and only provide prompt and uploadUrl. This is the simplest configuration to quickly test the API and experience the results.
+2. Generated files will be deleted after 15 days
+3. Ensure all required parameters are provided based on customMode and instrumental settings to avoid errors
+4. Pay attention to character limits for prompt, style, and title to ensure successful processing
+5. Callback process has three stages: text (text generation complete), first (first track complete), complete (all tracks complete)
+6. You can use the Get Music Generation Details endpoint to actively check task status instead of waiting for callbacks
+7. The uploadUrl parameter is used to specify the upload location of the audio file; please provide a valid URL.
+
+### Optional parameters
+
+* `vocalGender` (string): Vocal gender preference. Use `m` for male, `f` for female.
+* `styleWeight` (number): Strength of adherence to style. Range 0–1, up to 2 decimals. Example: `0.65`.
+* `weirdnessConstraint` (number): Controls creative deviation. Range 0–1, up to 2 decimals. Example: `0.65`.
+* `audioWeight` (number): Balance weight for audio features. Range 0–1, up to 2 decimals. Example: `0.65`.
+* `personaId` (string): Persona ID to apply to the generated music. Only available when Custom Mode is enabled. To create one, use [Generate Persona](../generate-persona).
+
+
+## OpenAPI
+
+````yaml suno-api/suno-api.json post /api/v1/generate/upload-cover
+openapi: 3.0.0
+info:
+  title: Suno API
+  description: kie.ai Suno API Documentation
+  version: 1.0.0
+  contact:
+    name: Technical Support
+    email: support@kie.ai
+servers:
+  - url: https://api.kie.ai
+    description: API Server
+security:
+  - BearerAuth: []
+paths:
+  /api/v1/generate/upload-cover:
+    post:
+      summary: Upload And Cover Audio
+      description: >-
+        This API covers an audio track by transforming it into a new style while
+        retaining its core melody. It incorporates Suno's upload capability,
+        enabling users to upload an audio file for processing. The expected
+        result is a refreshed audio track with a new style, keeping the original
+        melody intact.
+
+
+        ### Parameter Usage Guide
+
+        - When customMode is true (Custom Mode):
+          - If instrumental is true: style, title and uploadUrl are required
+          - If instrumental is false: style, prompt, title and uploadUrl are required
+          - **Character limits vary by model version:**
+            - **V5**: prompt (max 5000 chars), style (max 1000 chars), title (max 100 chars)
+            - **V4_5PLUS & V4_5**: prompt (max 5000 chars), style (max 1000 chars), title (max 100 chars)
+            - **V4_5ALL**: prompt (max 5000 chars), style (max 1000 chars), title (max 80 chars)
+            - **V4**: prompt (max 3000 chars), style (max 200 chars), title (max 80 chars)
+          - uploadUrl is used to specify the upload location of the audio file; ensure the uploaded audio does not exceed 8 minutes in length.
+
+        - When customMode is false (Non-custom Mode):
+          - Only prompt and uploadUrl are required regardless of instrumental setting
+          - prompt length limit: 500 characters
+          - Other parameters should be left empty
+
+        ### Developer Notes
+
+        1. Recommended settings for new users: Set customMode to false,
+        instrumental to false, and only provide prompt and uploadUrl. This is
+        the simplest configuration to quickly test the API and experience the
+        results.
+
+        2. Generated files will be deleted after 15 days
+
+        3. Ensure all required parameters are provided based on customMode and
+        instrumental settings to avoid errors
+
+        4. Pay attention to character limits for prompt, style, and title to
+        ensure successful processing
+
+        5. Callback process has three stages: text (text generation complete),
+        first (first track complete), complete (all tracks complete)
+
+        6. You can use the Get Music Generation Details endpoint to actively
+        check task status instead of waiting for callbacks
+
+        7. The uploadUrl parameter is used to specify the upload location of the
+        audio file; please provide a valid URL.
+      operationId: upload-and-cover-audio
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - uploadUrl
+                - customMode
+                - instrumental
+                - callBackUrl
+                - model
+                - prompt
+              properties:
+                uploadUrl:
+                  type: string
+                  format: uri
+                  description: >-
+                    The URL for uploading audio files, required regardless of
+                    whether customMode and instrumental are true or false.
+                    Ensure the uploaded audio does not exceed 8 minutes in
+                    length. Note: For the V4_5ALL model, the uploaded audio must
+                    not exceed 1 minute in length.
+                  example: https://storage.example.com/upload
+                prompt:
+                  type: string
+                  description: >-
+                    A description of the desired audio content.  
+
+                    - In Custom Mode (`customMode: true`):  Required if
+                    `instrumental` is `false`. The prompt will be strictly used
+                    as the lyrics and sung in the generated track. Character
+                    limits by model:  
+                      - **V5**: Maximum 5000 characters  
+                      - **V4_5PLUS & V4_5**: Maximum 5000 characters  
+                      - **V4_5ALL**: Maximum 5000 characters  
+                      - **V4**: Maximum 3000 characters  
+                      Example: "A calm and relaxing piano track with soft melodies"  
+                    - In Non-custom Mode (`customMode: false`): Always required.
+                    The prompt serves as the core idea, and lyrics will be
+                    automatically generated based on it (not strictly matching
+                    the input). Max length: 500 characters.  
+                      Example: "A short relaxing piano tune" 
+                  example: A calm and relaxing piano track with soft melodies
+                style:
+                  type: string
+                  description: >-
+                    The music style or genre for the audio.  
+
+                    - Required in Custom Mode (`customMode: true`). Examples:
+                    "Jazz", "Classical", "Electronic". Character limits by
+                    model:  
+                      - **V5**: Maximum 1000 characters  
+                      - **V4_5PLUS & V4_5**: Maximum 1000 characters  
+                      - **V4_5ALL**: Maximum 1000 characters  
+                      - **V4**: Maximum 200 characters  
+                      Example: "Classical"  
+                    - In Non-custom Mode (`customMode: false`): Leave empty.
+                  example: Classical
+                title:
+                  type: string
+                  description: >-
+                    The title of the generated music track.  
+
+                    - Required in Custom Mode (`customMode: true`). Character
+                    limits by model:  
+                      - **V5**: Maximum 100 characters  
+                      - **V4_5PLUS & V4_5**: Maximum 100 characters  
+                      - **V4_5ALL**: Maximum 80 characters  
+                      - **V4**: Maximum 80 characters  
+                      Example: "Peaceful Piano Meditation"  
+                    - In Non-custom Mode (`customMode: false`): Leave empty.
+                  example: Peaceful Piano Meditation
+                customMode:
+                  type: boolean
+                  description: >-
+                    Enables Custom Mode for advanced audio generation
+                    settings.  
+
+                    - Set to `true` to use Custom Mode (requires `style` and
+                    `title`; `prompt` required if `instrumental` is `false`).
+                    The prompt will be strictly used as lyrics if `instrumental`
+                    is `false`.  
+
+                    - Set to `false` for Non-custom Mode (only `prompt` is
+                    required). Lyrics will be auto-generated based on the
+                    prompt.
+                  example: true
+                instrumental:
+                  type: boolean
+                  description: >-
+                    Determines if the audio should be instrumental (no
+                    lyrics).  
+
+                    - In Custom Mode (`customMode: true`):  
+                      - If `true`: Only `style` and `title` are required.  
+                      - If `false`: `style`, `title`, and `prompt` are required (with `prompt` used as the exact lyrics).  
+                    - In Non-custom Mode (`customMode: false`): No impact on
+                    required fields (`prompt` only). Lyrics are auto-generated
+                    if `instrumental` is `false`.
+                  example: true
+                model:
+                  type: string
+                  description: |-
+                    The AI model version to use for generation.  
+                    - Required for all requests.  
+                    - Available options:  
+                      - **`V5`**: Superior musical expression, faster generation.  
+                      - **`V4_5PLUS`**: V4.5+ delivers richer sound, new ways to create, max 8 min.  
+                      - **`V4_5`**: V4.5 enables smarter prompts, faster generations, max 8 min.  
+                      - **`V4_5ALL`**: V4.5ALL enables smarter prompts, faster generations, max 8 min.  
+                      - **`V4`**: V4 improves vocal quality, max 4 min.
+                  enum:
+                    - V4
+                    - V4_5
+                    - V4_5PLUS
+                    - V4_5ALL
+                    - V5
+                  example: V4
+                negativeTags:
+                  type: string
+                  description: >-
+                    Music styles or traits to exclude from the generated
+                    audio.  
+
+                    - Optional. Use to avoid specific styles.  
+                      Example: "Heavy Metal, Upbeat Drums"
+                  example: Heavy Metal, Upbeat Drums
+                callBackUrl:
+                  type: string
+                  format: uri
+                  description: >-
+                    The URL to receive audio covering task completion updates.
+                    Required for all audio covering requests.
+
+
+                    - System will POST task status and results to this URL when
+                    audio covering completes
+
+                    - Callback includes generated covered audio files with new
+                    style while preserving original melody
+
+                    - Your callback endpoint should accept POST requests with
+                    JSON payload containing covered track results and audio URLs
+
+                    - For detailed callback format and implementation guide, see
+                    [Audio Covering
+                    Callbacks](https://docs.kie.ai/suno-api/upload-and-cover-audio-callbacks)
+
+                    - Alternatively, use the Get Music Details endpoint to poll
+                    task status
+                  example: https://api.example.com/callback
+                vocalGender:
+                  type: string
+                  description: >-
+                    Vocal gender preference for the singing voice. Optional. Use
+                    'm' for male and 'f' for female. Note: This parameter is
+                    only effective when customMode is true. Based on practice,
+                    this parameter can only increase the probability but cannot
+                    guarantee adherence to male/female voice instructions.
+                  enum:
+                    - m
+                    - f
+                  example: m
+                styleWeight:
+                  type: number
+                  description: >-
+                    Strength of adherence to the specified style. Optional.
+                    Range 0–1, up to 2 decimal places.
+                  minimum: 0
+                  maximum: 1
+                  multipleOf: 0.01
+                  example: 0.65
+                weirdnessConstraint:
+                  type: number
+                  description: >-
+                    Controls experimental/creative deviation. Optional. Range
+                    0–1, up to 2 decimal places.
+                  minimum: 0
+                  maximum: 1
+                  multipleOf: 0.01
+                  example: 0.65
+                audioWeight:
+                  type: number
+                  description: >-
+                    Balance weight for audio features vs. other factors.
+                    Optional. Range 0–1, up to 2 decimal places.
+                  minimum: 0
+                  maximum: 1
+                  multipleOf: 0.01
+                  example: 0.65
+                personaId:
+                  type: string
+                  description: >-
+                    Only available when Custom Mode (`customMode: true`) is
+                    enabled. Persona ID to apply to the generated music.
+                    Optional. Use this to apply a specific persona style to your
+                    music generation. 
+
+
+                    To generate a persona ID, use the [Generate
+                    Persona](https://docs.kie.ai/suno-api/generate-persona)
+                    endpoint to create a personalized music Persona based on
+                    generated music.
+                  example: persona_123
+      responses:
+        '200':
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      code:
+                        type: integer
+                        enum:
+                          - 200
+                          - 401
+                          - 402
+                          - 404
+                          - 409
+                          - 422
+                          - 429
+                          - 451
+                          - 455
+                          - 500
+                        description: >-
+                          Response status code
+
+
+                          - **200**: Success - Request has been processed
+                          successfully
+
+                          - **401**: Unauthorized - Authentication credentials
+                          are missing or invalid
+
+                          - **402**: Insufficient Credits - Account does not
+                          have enough credits to perform the operation
+
+                          - **404**: Not Found - The requested resource or
+                          endpoint does not exist
+
+                          - **409**: Conflict - WAV record already exists
+
+                          - **422**: Validation Error - The request parameters
+                          failed validation checks
+
+                          - **429**: Rate Limited - Request limit has been
+                          exceeded for this resource
+
+                          - **451**: Unauthorized - Failed to fetch the image.
+                          Kindly verify any access limits set by you or your
+                          service provider.
+
+                          - **455**: Service Unavailable - System is currently
+                          undergoing maintenance
+
+                          - **500**: Server Error - An unexpected error occurred
+                          while processing the request
+                      msg:
+                        type: string
+                        description: Error message when code != 200
+                        example: success
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          taskId:
+                            type: string
+                            description: Task ID for tracking task status
+                            example: 5c79****be8e
+        '500':
+          $ref: '#/components/responses/Error'
+      callbacks:
+        audioGenerated:
+          '{request.body#/callBackUrl}':
+            post:
+              description: >-
+                System will call this callback when audio generation is
+                complete.
+
+
+                ### Callback Example
+
+                ```json
+
+                {
+                  "code": 200,
+                  "msg": "All generated successfully.",
+                  "data": {
+                    "callbackType": "complete",
+                    "task_id": "2fac****9f72",
+                    "data": [
+                      {
+                        "id": "e231****-****-****-****-****8cadc7dc",
+                        "audio_url": "https://example.cn/****.mp3",
+                        "source_audio_url": "https://example.cn/****.mp3",
+                        "stream_audio_url": "https://example.cn/****",
+                        "source_stream_audio_url": "https://example.cn/****",
+                        "image_url": "https://example.cn/****.jpeg",
+                        "source_image_url": "https://example.cn/****.jpeg",
+                        "prompt": "[Verse] Night city lights shining bright",
+                        "model_name": "chirp-v3-5",
+                        "title": "Iron Man",
+                        "tags": "electrifying, rock",
+                        "createTime": "2025-01-01 00:00:00",
+                        "duration": 198.44
+                      },
+                      {
+                        "id": "bd15****1873",
+                        "audio_url": "https://example.cn/****.mp3",
+                        "source_audio_url": "https://example.cn/****.mp3",
+                        "stream_audio_url": "https://example.cn/****",
+                        "source_stream_audio_url": "https://example.cn/****",
+                        "image_url": "https://example.cn/****.jpeg",
+                        "source_image_url": "https://example.cn/****.jpeg",
+                        "prompt": "[Verse] Night city lights shining bright",
+                        "model_name": "chirp-v3-5",
+                        "title": "Iron Man",
+                        "tags": "electrifying, rock",
+                        "createTime": "2025-01-01 00:00:00",
+                        "duration": 228.28
+                      }
+                    ]
+                  }
+                }
+
+                ```
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        code:
+                          type: integer
+                          description: Status code
+                          example: 200
+                        msg:
+                          type: string
+                          description: Response message
+                          example: All generated successfully
+                        data:
+                          type: object
+                          properties:
+                            callbackType:
+                              type: string
+                              description: >-
+                                Callback type: text (text generation complete),
+                                first (first track complete), complete (all
+                                tracks complete)
+                              enum:
+                                - text
+                                - first
+                                - complete
+                            task_id:
+                              type: string
+                              description: Task ID
+                            data:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  id:
+                                    type: string
+                                    description: Audio unique identifier (audioId)
+                                  audio_url:
+                                    type: string
+                                    description: Audio file URL
+                                  source_audio_url:
+                                    type: string
+                                    description: Original audio file URL
+                                  stream_audio_url:
+                                    type: string
+                                    description: Streaming audio URL
+                                  source_stream_audio_url:
+                                    type: string
+                                    description: Original streaming audio URL
+                                  image_url:
+                                    type: string
+                                    description: Cover image URL
+                                  source_image_url:
+                                    type: string
+                                    description: Original cover image URL
+                                  prompt:
+                                    type: string
+                                    description: Generation prompt/lyrics
+                                  model_name:
+                                    type: string
+                                    description: Model name used
+                                  title:
+                                    type: string
+                                    description: Music title
+                                  tags:
+                                    type: string
+                                    description: Music tags
+                                  createTime:
+                                    type: string
+                                    description: Creation time
+                                    format: date-time
+                                  duration:
+                                    type: number
+                                    description: Audio duration (seconds)
+              responses:
+                '200':
+                  description: Callback received successfully
+                  content:
+                    application/json:
+                      schema:
+                        allOf:
+                          - type: object
+                            properties:
+                              code:
+                                type: integer
+                                enum:
+                                  - 200
+                                  - 400
+                                  - 408
+                                  - 413
+                                  - 500
+                                  - 501
+                                  - 531
+                                description: >-
+                                  Response status code
+
+
+                                  - **200**: Success - Request has been
+                                  processed successfully
+
+                                  - **400**: Validation Error - Lyrics contained
+                                  copyrighted material.
+
+                                  - **408**: Rate Limited - Timeout.
+
+                                  - **413**: Conflict - Uploaded audio matches
+                                  existing work of art.
+
+                                  - **500**: Server Error - An unexpected error
+                                  occurred while processing the request
+
+                                  - **501**: Audio generation failed.
+
+                                  - **531**: Server Error - Sorry, the
+                                  generation failed due to an issue. Your
+                                  credits have been refunded. Please try again.
+                              msg:
+                                type: string
+                                description: Error message when code != 200
+                                example: success
+                      example:
+                        code: 200
+                        msg: success
+components:
+  responses:
+    Error:
+      description: Server Error
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: >-
+        All APIs require authentication via Bearer Token.
+
+
+        Get API Key:
+
+        1. Visit [API Key Management Page](https://kie.ai/api-key) to get your
+        API Key
+
+
+        Usage:
+
+        Add to request header:
+
+        Authorization: Bearer YOUR_API_KEY
+
+
+        Note:
+
+        - Keep your API Key secure and do not share it with others
+
+        - If you suspect your API Key has been compromised, reset it immediately
+        in the management page
+
+````
+
+---
+
+> To find navigation and other pages in this documentation, fetch the llms.txt file at: https://docs.kie.ai/llms.txt
+
+# Add Instrumental
+
+> This endpoint generates a musical accompaniment tailored to an uploaded audio file — typically a vocal stem or melody track. It helps users instantly flesh out their vocal ideas with high-quality backing music, all without needing a producer.
+
+### **Key Capabilities**
+
+* Accepts uploadUrl of an existing audio file (usually vocals or stems).
+* Supports fine-grained customization via parameters such as:
+  * tags and negativeTags (musical style controls)
+  * styleWeight, audioWeight, weirdnessConstraint (stylistic & creative blending)
+  * vocalGender, title, callBackUrl for metadata & workflow control  .
+* Returns a taskId for tracking, and results are retained for 14 days. Callback workflow includes three stages: text, first, and complete  .
+
+### **Typical Use Cases**
+
+* Singers or melody writers who want instant fuller arrangements around their vocal inputs.
+* Applications like karaoke platforms, demo-generation tools, or co-creation interfaces that allow users to experiment with accompaniment styles easily.
+
+### Parameter Details
+
+* `uploadUrl` specifies the audio file URL to be processed
+* `title` specifies the title for the generated music
+* `model` specifies the AI model version for generation
+* `tags` and `negativeTags` are used to control music style
+* Supports various optional parameters for fine-tuning generation effects
+
+### Developer Notes
+
+* Generated files will be retained for 14 days
+* Callback process has three stages: `text` (text generation), `first` (first track completed), `complete` (all completed)
+
+
+## OpenAPI
+
+````yaml suno-api/suno-api.json post /api/v1/generate/add-instrumental
+openapi: 3.0.0
+info:
+  title: Suno API
+  description: kie.ai Suno API Documentation
+  version: 1.0.0
+  contact:
+    name: Technical Support
+    email: support@kie.ai
+servers:
+  - url: https://api.kie.ai
+    description: API Server
+security:
+  - BearerAuth: []
+paths:
+  /api/v1/generate/add-instrumental:
+    post:
+      summary: Add Instrumental to Music
+      description: >-
+        Generate instrumental accompaniment based on uploaded audio files. This
+        interface allows you to upload audio files and add instrumental tracks
+        to them.
+
+
+        ### Usage Guide
+
+        - Use this interface to add instrumental tracks to existing audio
+
+        - Supports generation of various music style accompaniments
+
+        - Allows customization of style, exclusion of specific elements, etc.
+
+
+        ### Parameter Details
+
+        - `uploadUrl` specifies the audio file URL to be processed
+
+        - `title` specifies the title for the generated music
+
+        - `tags` and `negativeTags` are used to control music style
+
+        - Supports various optional parameters for fine-tuning generation
+        effects
+
+
+        ### Developer Notes
+
+        - Generated files will be retained for 14 days
+
+        - Callback process has three stages: `text` (text generation), `first`
+        (first track completed), `complete` (all completed)
+      operationId: add-instrumental
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - uploadUrl
+                - title
+                - negativeTags
+                - tags
+                - callBackUrl
+              properties:
+                uploadUrl:
+                  type: string
+                  format: uri
+                  description: >-
+                    URL of the uploaded audio file. Specifies the source audio
+                    file location for adding accompaniment.
+                  example: https://example.com/music.mp3
+                model:
+                  type: string
+                  description: |-
+                    The AI model version to use for generation.   
+                    - Available options: 
+                      - **`V5`**: Superior musical expression, faster generation.  
+                      - **`V4_5PLUS`**: V4.5+ is richer sound, new ways to create.  
+                  enum:
+                    - V4_5PLUS
+                    - V5
+                  default: V4_5PLUS
+                  example: V4_5PLUS
+                title:
+                  type: string
+                  description: >-
+                    Title of the generated music. Will be displayed in the
+                    player interface and file name.
+                  example: Relaxing Piano
+                negativeTags:
+                  type: string
+                  description: >-
+                    Music styles or characteristics to exclude from the
+                    generated audio. Used to avoid specific unwanted music
+                    elements.
+                  example: heavy metal, fast drums
+                tags:
+                  type: string
+                  description: >-
+                    Music styles or tags to include in the generated music.
+                    Defines the desired music style and characteristics.
+                  example: relaxing, piano, soothing
+                callBackUrl:
+                  type: string
+                  format: uri
+                  description: >-
+                    URL address for receiving instrumental generation task
+                    completion updates. This parameter is required for all
+                    instrumental generation requests.
+
+
+                    - The system will send a POST request to this URL when
+                    instrumental generation is completed, including task status
+                    and results
+
+                    - Callback process has three stages: `text` (text
+                    generation), `first` (first track completed), `complete`
+                    (all completed)
+
+                    - Your callback endpoint should be able to accept POST
+                    requests containing JSON payloads with music generation
+                    results
+
+                    - Alternatively, you can use the get music details interface
+                    to poll task status
+                  example: https://example.com/callback
+                vocalGender:
+                  type: string
+                  description: >-
+                    Vocal gender preference. Optional. 'm' for male, 'f' for
+                    female. Based on practice, this parameter can only increase
+                    the probability but cannot guarantee adherence to
+                    male/female voice instructions.
+                  enum:
+                    - m
+                    - f
+                  example: m
+                styleWeight:
+                  type: number
+                  description: >-
+                    Adherence strength to specified style. Optional. Range 0–1,
+                    up to 2 decimal places.
+                  minimum: 0
+                  maximum: 1
+                  multipleOf: 0.01
+                  example: 0.61
+                weirdnessConstraint:
+                  type: number
+                  description: >-
+                    Controls experimental/creative deviation level. Optional.
+                    Range 0–1, up to 2 decimal places.
+                  minimum: 0
+                  maximum: 1
+                  multipleOf: 0.01
+                  example: 0.72
+                audioWeight:
+                  type: number
+                  description: >-
+                    Relative weight of audio elements. Optional. Range 0–1, up
+                    to 2 decimal places.
+                  minimum: 0
+                  maximum: 1
+                  multipleOf: 0.01
+                  example: 0.65
+      responses:
+        '200':
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      code:
+                        type: integer
+                        enum:
+                          - 200
+                          - 401
+                          - 402
+                          - 404
+                          - 409
+                          - 422
+                          - 429
+                          - 451
+                          - 455
+                          - 500
+                        description: >-
+                          Response status code
+
+
+                          - **200**: Success - Request processed successfully
+
+                          - **401**: Unauthorized - Authentication credentials
+                          missing or invalid
+
+                          - **402**: Insufficient credits - Account does not
+                          have enough credits to perform this operation
+
+                          - **404**: Not found - Requested resource or endpoint
+                          does not exist
+
+                          - **409**: Conflict - WAV record already exists
+
+                          - **422**: Validation error - Request parameters
+                          failed validation checks
+
+                          - **429**: Rate limit exceeded - Request limit for
+                          this resource has been exceeded
+
+                          - **451**: Unauthorized - Failed to retrieve image.
+                          Please verify any access restrictions set by you or
+                          your service provider.
+
+                          - **455**: Service unavailable - System currently
+                          undergoing maintenance
+
+                          - **500**: Server error - Unexpected error occurred
+                          while processing request
+                      msg:
+                        type: string
+                        description: Error message when code != 200
+                        example: success
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          taskId:
+                            type: string
+                            description: >-
+                              Task ID for tracking task status. You can use this
+                              ID to query task details and results through the
+                              "Get Music Details" interface.
+                            example: 5c79****be8e
+        '500':
+          $ref: '#/components/responses/Error'
+      callbacks:
+        audioGenerated:
+          '{request.body#/callBackUrl}':
+            post:
+              description: >-
+                When instrumental generation is completed, the system will call
+                this callback to notify the results.
+
+
+                ### Callback Example
+
+                ```json
+
+                {
+                  "code": 200,
+                  "msg": "All generated successfully.",
+                  "data": {
+                    "callbackType": "complete",
+                    "task_id": "2fac****9f72",
+                    "data": [
+                      {
+                        "id": "e231****-****-****-****-****8cadc7dc",
+                        "audio_url": "https://example.cn/****.mp3",
+                        "stream_audio_url": "https://example.cn/****",
+                        "image_url": "https://example.cn/****.jpeg",
+                        "prompt": "[Verse] Night city lights shining bright",
+                        "model_name": "chirp-v4-5",
+                        "title": "Iron Man",
+                        "tags": "electrifying, rock",
+                        "createTime": "2025-01-01 00:00:00",
+                        "duration": 198.44
+                      }
+                    ]
+                  }
+                }
+
+                ```
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        code:
+                          type: integer
+                          description: Status code
+                          example: 200
+                        msg:
+                          type: string
+                          description: Return message
+                          example: All generated successfully
+                        data:
+                          type: object
+                          properties:
+                            callbackType:
+                              type: string
+                              description: >-
+                                Callback type: text (text generation completed),
+                                first (first track completed), complete (all
+                                completed)
+                              enum:
+                                - text
+                                - first
+                                - complete
+                            task_id:
+                              type: string
+                              description: Task ID
+                            data:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  id:
+                                    type: string
+                                    description: Audio unique identifier (audioId)
+                                  audio_url:
+                                    type: string
+                                    description: Audio file URL
+                                  stream_audio_url:
+                                    type: string
+                                    description: Streaming audio URL
+                                  image_url:
+                                    type: string
+                                    description: Cover image URL
+                                  prompt:
+                                    type: string
+                                    description: Generation prompt/lyrics
+                                  model_name:
+                                    type: string
+                                    description: Model name used
+                                  title:
+                                    type: string
+                                    description: Music title
+                                  tags:
+                                    type: string
+                                    description: Music tags
+                                  createTime:
+                                    type: string
+                                    description: Creation time
+                                    format: date-time
+                                  duration:
+                                    type: number
+                                    description: Audio duration (seconds)
+              responses:
+                '200':
+                  description: Callback received successfully
+                  content:
+                    application/json:
+                      schema:
+                        allOf:
+                          - type: object
+                            properties:
+                              code:
+                                type: integer
+                                enum:
+                                  - 200
+                                  - 400
+                                  - 408
+                                  - 413
+                                  - 500
+                                  - 501
+                                  - 531
+                                description: >-
+                                  Response status code
+
+
+                                  - **200**: Success - Request processed
+                                  successfully
+
+                                  - **400**: Validation error - Lyrics contain
+                                  copyrighted content.
+
+                                  - **408**: Rate limit exceeded - Timeout.
+
+                                  - **413**: Conflict - Uploaded audio matches
+                                  existing artwork.
+
+                                  - **500**: Server error - Unexpected error
+                                  occurred while processing request
+
+                                  - **501**: Audio generation failed.
+
+                                  - **531**: Server error - Sorry, generation
+                                  failed due to issues. Your credits have been
+                                  refunded. Please try again.
+                              msg:
+                                type: string
+                                description: Error message when code != 200
+                                example: success
+                      example:
+                        code: 200
+                        msg: success
+components:
+  responses:
+    Error:
+      description: Server Error
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: >-
+        All APIs require authentication via Bearer Token.
+
+
+        Get API Key:
+
+        1. Visit [API Key Management Page](https://kie.ai/api-key) to get your
+        API Key
+
+
+        Usage:
+
+        Add to request header:
+
+        Authorization: Bearer YOUR_API_KEY
+
+
+        Note:
+
+        - Keep your API Key secure and do not share it with others
+
+        - If you suspect your API Key has been compromised, reset it immediately
+        in the management page
+
+````
+
+---
+
+> To find navigation and other pages in this documentation, fetch the llms.txt file at: https://docs.kie.ai/llms.txts

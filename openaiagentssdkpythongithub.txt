@@ -1,0 +1,487 @@
+
+Skip to content
+Navigation Menu
+openai
+openai-agents-python
+
+    Code
+    Issues 147
+    Pull requests 15
+    Actions
+    Security
+    Insights
+
+Owner avatar
+openai-agents-python
+Public
+
+openai/openai-agents-python
+t
+Name	Last commit message
+	Last commit date
+seratch
+seratch
+chore: update final-release-reivew skill details
+5c91b4e
+ · 
+24 minutes ago
+.codex/skills
+	
+chore: update final-release-reivew skill details
+	
+24 minutes ago
+.github
+	
+chore: add release PR labeling and milestone fallback (#2311)
+	
+2 days ago
+.vscode
+	
+[8/n] Make realtime more like the rest of agents sdk (#1076)
+	
+6 months ago
+docs
+	
+Update all translated document pages (#2316)
+	
+yesterday
+examples
+	
+feat: add experimental Codex extension and tool (#2320)
+	
+1 hour ago
+src/agents
+	
+feat: add experimental Codex extension and tool (#2320)
+	
+1 hour ago
+tests
+	
+feat: add experimental Codex extension and tool (#2320)
+	
+1 hour ago
+.gitignore
+	
+feat: add examples auto-run skill and refresh example scripts (#2303)
+	
+3 days ago
+.prettierrc
+	
+Initial commit
+	
+10 months ago
+AGENTS.md
+	
+docs: add ExecPlan guidance and template (#2298)
+	
+5 days ago
+CLAUDE.md
+	
+Point CLAUDE.md to AGENTS.md (#930)
+	
+7 months ago
+LICENSE
+	
+Initial commit
+	
+10 months ago
+Makefile
+	
+chore: update test coverage rules to exclude tests/* (#2318)
+	
+18 hours ago
+PLANS.md
+	
+docs: add ExecPlan guidance and template (#2298)
+	
+5 days ago
+README.md
+	
+Fix README.md typo in uv installation instructions (#2210)
+	
+last month
+mkdocs.yml
+	
+docs: #2314 remove logger ref document page
+	
+yesterday
+pyproject.toml
+	
+Release 0.6.7 (#2319)
+	
+1 hour ago
+uv.lock
+	
+Release 0.6.7 (#2319)
+	
+1 hour ago
+Repository files navigation
+
+    README
+    MIT license
+
+OpenAI Agents SDK PyPI
+
+The OpenAI Agents SDK is a lightweight yet powerful framework for building multi-agent workflows. It is provider-agnostic, supporting the OpenAI Responses and Chat Completions APIs, as well as 100+ other LLMs.
+
+Image of the Agents Tracing UI
+
+Note
+
+Looking for the JavaScript/TypeScript version? Check out Agents SDK JS/TS.
+Core concepts:
+
+    Agents: LLMs configured with instructions, tools, guardrails, and handoffs
+    Handoffs: A specialized tool call used by the Agents SDK for transferring control between agents
+    Guardrails: Configurable safety checks for input and output validation
+    Sessions: Automatic conversation history management across agent runs
+    Tracing: Built-in tracking of agent runs, allowing you to view, debug and optimize your workflows
+
+Explore the examples directory to see the SDK in action, and read our documentation for more details.
+Get started
+
+To get started, set up your Python environment (Python 3.9 or newer required), and then install OpenAI Agents SDK package.
+venv
+
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install openai-agents
+
+For voice support, install with the optional voice group: pip install 'openai-agents[voice]'.
+
+For Redis session support, install with the optional redis group: pip install 'openai-agents[redis]'.
+uv
+
+If you're familiar with uv, installing the package would be even easier:
+
+uv init
+uv add openai-agents
+
+For voice support, install with the optional voice group: uv add 'openai-agents[voice]'.
+
+For Redis session support, install with the optional redis group: uv add 'openai-agents[redis]'.
+Hello world example
+
+from agents import Agent, Runner
+
+agent = Agent(name="Assistant", instructions="You are a helpful assistant")
+
+result = Runner.run_sync(agent, "Write a haiku about recursion in programming.")
+print(result.final_output)
+
+# Code within the code,
+# Functions calling themselves,
+# Infinite loop's dance.
+
+(If running this, ensure you set the OPENAI_API_KEY environment variable)
+
+(For Jupyter notebook users, see hello_world_jupyter.ipynb)
+Handoffs example
+
+from agents import Agent, Runner
+import asyncio
+
+spanish_agent = Agent(
+    name="Spanish agent",
+    instructions="You only speak Spanish.",
+)
+
+english_agent = Agent(
+    name="English agent",
+    instructions="You only speak English",
+)
+
+triage_agent = Agent(
+    name="Triage agent",
+    instructions="Handoff to the appropriate agent based on the language of the request.",
+    handoffs=[spanish_agent, english_agent],
+)
+
+
+async def main():
+    result = await Runner.run(triage_agent, input="Hola, ¿cómo estás?")
+    print(result.final_output)
+    # ¡Hola! Estoy bien, gracias por preguntar. ¿Y tú, cómo estás?
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+Functions example
+
+import asyncio
+
+from agents import Agent, Runner, function_tool
+
+
+@function_tool
+def get_weather(city: str) -> str:
+    return f"The weather in {city} is sunny."
+
+
+agent = Agent(
+    name="Hello world",
+    instructions="You are a helpful agent.",
+    tools=[get_weather],
+)
+
+
+async def main():
+    result = await Runner.run(agent, input="What's the weather in Tokyo?")
+    print(result.final_output)
+    # The weather in Tokyo is sunny.
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+The agent loop
+
+When you call Runner.run(), we run a loop until we get a final output.
+
+    We call the LLM, using the model and settings on the agent, and the message history.
+    The LLM returns a response, which may include tool calls.
+    If the response has a final output (see below for more on this), we return it and end the loop.
+    If the response has a handoff, we set the agent to the new agent and go back to step 1.
+    We process the tool calls (if any) and append the tool responses messages. Then we go to step 1.
+
+There is a max_turns parameter that you can use to limit the number of times the loop executes.
+Final output
+
+Final output is the last thing the agent produces in the loop.
+
+    If you set an output_type on the agent, the final output is when the LLM returns something of that type. We use structured outputs for this.
+    If there's no output_type (i.e. plain text responses), then the first LLM response without any tool calls or handoffs is considered as the final output.
+
+As a result, the mental model for the agent loop is:
+
+    If the current agent has an output_type, the loop runs until the agent produces structured output matching that type.
+    If the current agent does not have an output_type, the loop runs until the current agent produces a message without any tool calls/handoffs.
+
+Common agent patterns
+
+The Agents SDK is designed to be highly flexible, allowing you to model a wide range of LLM workflows including deterministic flows, iterative loops, and more. See examples in examples/agent_patterns.
+Tracing
+
+The Agents SDK automatically traces your agent runs, making it easy to track and debug the behavior of your agents. Tracing is extensible by design, supporting custom spans and a wide variety of external destinations, including Logfire, AgentOps, Braintrust, Scorecard, Keywords AI, and many more. For more details about how to customize or disable tracing, see Tracing, which also includes a larger list of external tracing processors.
+Long running agents & human-in-the-loop
+
+You can use the Agents SDK Temporal integration to run durable, long-running workflows, including human-in-the-loop tasks. View a demo of Temporal and the Agents SDK working in action to complete long-running tasks in this video, and view docs here.
+Sessions
+
+The Agents SDK provides built-in session memory to automatically maintain conversation history across multiple agent runs, eliminating the need to manually handle .to_input_list() between turns.
+Quick start
+
+from agents import Agent, Runner, SQLiteSession
+
+# Create agent
+agent = Agent(
+    name="Assistant",
+    instructions="Reply very concisely.",
+)
+
+# Create a session instance
+session = SQLiteSession("conversation_123")
+
+# First turn
+result = await Runner.run(
+    agent,
+    "What city is the Golden Gate Bridge in?",
+    session=session
+)
+print(result.final_output)  # "San Francisco"
+
+# Second turn - agent automatically remembers previous context
+result = await Runner.run(
+    agent,
+    "What state is it in?",
+    session=session
+)
+print(result.final_output)  # "California"
+
+# Also works with synchronous runner
+result = Runner.run_sync(
+    agent,
+    "What's the population?",
+    session=session
+)
+print(result.final_output)  # "Approximately 39 million"
+
+Session options
+
+    No memory (default): No session memory when session parameter is omitted
+    session: Session = DatabaseSession(...): Use a Session instance to manage conversation history
+
+from agents import Agent, Runner, SQLiteSession
+
+# SQLite - file-based or in-memory database
+session = SQLiteSession("user_123", "conversations.db")
+
+# Redis - for scalable, distributed deployments
+# from agents.extensions.memory import RedisSession
+# session = RedisSession.from_url("user_123", url="redis://localhost:6379/0")
+
+agent = Agent(name="Assistant")
+
+# Different session IDs maintain separate conversation histories
+result1 = await Runner.run(
+    agent,
+    "Hello",
+    session=session
+)
+result2 = await Runner.run(
+    agent,
+    "Hello",
+    session=SQLiteSession("user_456", "conversations.db")
+)
+
+Custom session implementations
+
+You can implement your own session memory by creating a class that follows the Session protocol:
+
+from agents.memory import Session
+from typing import List
+
+class MyCustomSession:
+    """Custom session implementation following the Session protocol."""
+
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        # Your initialization here
+
+    async def get_items(self, limit: int | None = None) -> List[dict]:
+        # Retrieve conversation history for the session
+        pass
+
+    async def add_items(self, items: List[dict]) -> None:
+        # Store new items for the session
+        pass
+
+    async def pop_item(self) -> dict | None:
+        # Remove and return the most recent item from the session
+        pass
+
+    async def clear_session(self) -> None:
+        # Clear all items for the session
+        pass
+
+# Use your custom session
+agent = Agent(name="Assistant")
+result = await Runner.run(
+    agent,
+    "Hello",
+    session=MyCustomSession("my_session")
+)
+
+Development (only needed if you need to edit the SDK/examples)
+
+    Ensure you have uv installed.
+
+uv --version
+
+    Install dependencies
+
+make sync
+
+    (After making changes) lint/test
+
+make check # run tests linter and typechecker
+
+Or to run them individually:
+
+make tests  # run tests
+make mypy   # run typechecker
+make lint   # run linter
+make format-check # run style checker
+
+Format code if make format-check fails above by running:
+
+make format
+
+Acknowledgements
+
+We'd like to acknowledge the excellent work of the open-source community, especially:
+
+    Pydantic (data validation) and PydanticAI (advanced agent framework)
+    LiteLLM (unified interface for 100+ LLMs)
+    MkDocs
+    Griffe
+    uv and ruff
+
+We're committed to continuing to build the Agents SDK as an open source framework so others in the community can expand on our approach.
+About
+
+A lightweight, powerful framework for multi-agent workflows
+openai.github.io/openai-agents-python/
+Topics
+python framework ai openai agents llm
+Resources
+Readme
+License
+MIT license
+Activity
+Custom properties
+Stars
+18.4k stars
+Watchers
+181 watching
+Forks
+3.1k forks
+Report repository
+Releases 48
+v0.6.7 Latest
+1 hour ago
++ 47 releases
+Used by 4.3k
+
+    @pearldemo
+    @rabbykst
+    @percebus
+    @percebus
+    @kedro-org
+    @formsort
+    @Glenn-MS
+    @TeamADAPT
+
++ 4,335
+Contributors 202
+
+    @rm-openai
+    @seratch
+    @github-actions[bot]
+    @MartinEBravo
+    @dmitry-openai
+    @ihower
+    @habema
+    @alexmojaki
+    @mshsheikh
+    @jhills20
+    @DanieleMorotti
+    @DanielHashmi
+    @vincentkoc
+    @gn00295120
+
++ 188 contributors
+Deployments 500+
+
+    github-pages 21 minutes ago
+    pypi 1 hour ago
+
++ more deployments
+Languages
+
+    Python 99.7%
+    Other 0.3% 
+
+Footer
+© 2026 GitHub, Inc.
+Footer navigation
+
+    Terms
+    Privacy
+    Security
+    Status
+    Community
+    Docs
+    Contact
+

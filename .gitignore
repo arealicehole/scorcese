@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment
+.env
+.venv
+env/
+venv/
+*.local.json
+
+# IDE
+.vscode/
+.idea/
+
+# Project Output
+scorsese/output/
+*_final*.mp4
+manual_*.mp4
+temp_*.mp4
+frame_*.png
+
+# Logs
+*.log
+scorsese_history.db
