@@ -5,7 +5,10 @@ import argparse
 from dataclasses import dataclass, field
 from typing import Optional
 from scorsese.services.kie_client import KIEClient
-from scorsese.approaches.agentic import AgenticApproach
+# New modular agents system
+from scorsese.agents import ScorseseCrew
+# Keep old approach for fallback if needed
+# from scorsese.approaches.agentic import AgenticApproach
 
 # Try importing Agents SDK REPL
 try:
@@ -143,20 +146,58 @@ def main():
         session_state = SessionState()
 
     kie = KIEClient(api_key=kie_api_key)
-    agentic_system = AgenticApproach(
+    
+    # Import services for the crew
+    from scorsese.services.moviepy_service import MoviePyService
+    from scorsese.services.image_upload_service import ImageUploadService
+    from scorsese.services.music_service import MusicService
+    from scorsese.services.elevenlabs_service import ElevenLabsService
+    from scorsese.services.manim_service import ManimService
+    from scorsese.services.video_service import VideoService
+    from scorsese.services.pipeline_service import PipelineService
+    from scorsese.services.llm_client import LLMClient
+    
+    # Initialize services
+    moviepy_service = MoviePyService()
+    image_upload_service = ImageUploadService()
+    music_service = MusicService(kie_client=kie)
+    elevenlabs_service = ElevenLabsService()
+    manim_service = ManimService()
+    video_service = VideoService(kie, image_upload_service, moviepy_service)
+    pipeline_service = PipelineService(video_service, moviepy_service)
+    
+    # LLM for creative writing
+    or_key = os.getenv("OPENROUTER_API_KEY")
+    llm_client = LLMClient(
+        model=creative_model,
+        api_key=or_key,
+        base_url="https://openrouter.ai/api/v1"
+    ) if or_key else None
+    
+    # Create the Scorsese Crew
+    crew = ScorseseCrew(
         kie_client=kie,
-        logic_model=logic_model, 
+        logic_model=logic_model,
         creative_model=creative_model,
-        session_state=session_state  # Pass session state
+        session_state=session_state,
+        video_service=video_service,
+        pipeline_service=pipeline_service,
+        moviepy_service=moviepy_service,
+        music_service=music_service,
+        elevenlabs_service=elevenlabs_service,
+        manim_service=manim_service,
+        image_upload_service=image_upload_service,
+        llm_client=llm_client
     )
-
-    triage_agent = agentic_system.get_triage_agent()
+    
+    # Marty is the Director (entry point)
+    marty = crew.get_director()
 
     # Allow CLI to default to interactive if no args or specific flag
     if args.interactive or len(sys.argv) == 1:
-        print("\nStarting Scorsese Studio (Manual Mode)...")
-        # Explicitly use manual loop to avoid SDK streaming bugs
-        asyncio.run(manual_loop(triage_agent, session_state))
+        print("\n🎬 Starting Scorsese Studio...")
+        print("   Director: Marty is ready to take your vision.")
+        asyncio.run(manual_loop(marty, session_state))
     else:
         print("Use --interactive to start the studio.")
 
