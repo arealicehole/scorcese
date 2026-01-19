@@ -2,7 +2,7 @@
 import os
 from moviepy import VideoFileClip, concatenate_videoclips
 
-video_paths = [r"C:\Users\figon\zeebot\scorcese\scorsese\output\segment_1_a216ec.mp4", r"C:\Users\figon\zeebot\scorcese\scorsese\output\segment_2_826221.mp4"]
+video_paths = ["C:/Users/figon/zeebot/scorcese/scorsese/output/manual_segment_c0cb3a.mp4", "C:/Users/figon/zeebot/scorcese/scorsese/output/manual_segment_173814.mp4", "C:/Users/figon/zeebot/scorcese/scorsese/output/manual_segment_6969cf.mp4"]
 clips = []
 
 try:
@@ -22,7 +22,7 @@ try:
     output_dir = os.path.join(os.getcwd(), "scorsese", "output")
     os.makedirs(output_dir, exist_ok=True)
     
-    output_path = os.path.join(output_dir, "stitched_final_f0e46b.mp4")
+    output_path = os.path.join(output_dir, "stitched_final_ccdf7d.mp4")
     final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
     
     print(f"STITCH_SUCCESS: {output_path}")

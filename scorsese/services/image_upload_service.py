@@ -9,7 +9,11 @@ class ImageUploadService:
     def upload_image(self, file_path: str) -> str:
         """
         Uploads a local file to Uguu.se and returns the public URL.
+        If the input is already a URL, returns it as-is.
         """
+        if file_path.startswith("http://") or file_path.startswith("https://"):
+            return file_path
+            
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 

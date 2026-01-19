@@ -25,14 +25,16 @@ except ImportError:
 
 
 class AgenticApproach:
-    def __init__(self, kie_client: KIEClient, logic_model: str = "gpt-4o-mini", creative_model: str = "openai/gpt-4o"):
+    def __init__(self, kie_client: KIEClient, logic_model: str = "gpt-4o-mini", creative_model: str = "openai/gpt-4o", session_state=None):
         """
         logic_model: The model used by the Agents themselves (Nano/Mini).
         creative_model: The model used by the consult_expert_writer tool (OpenRouter/Sonnet/etc).
+        session_state: Optional SessionState object for tracking runs and approvals.
         """
         self.kie = kie_client
         self.logic_model = logic_model
         self.creative_model = creative_model
+        self.session_state = session_state  # Store session state reference
         
         # Explicitly configure for OpenRouter to avoid key confusion
         or_key = os.getenv("OPENROUTER_API_KEY")
@@ -57,6 +59,7 @@ class AgenticApproach:
         self.pipeline_service = PipelineService(self.video_service, self.moviepy_service)
         
         self.guide_content = self._load_guide()
+
         
         # --- Tools ---
         
@@ -99,10 +102,11 @@ class AgenticApproach:
             RULES FOR VISUALS:
             1. SUBJECT: MUST be generic to match the input image (e.g., "The character in the image", "The speaker"). DO NOT invent gender/clothing details (e.g., "Male trader in hoodie") as this causes morphing artifacts if it conflicts with the user's image.
             2. NO TEXT: Do NOT include requests for "Text Overlay", "Captions", or "UI elements" in the visual description. The video should be clean.
-            3. LIP SYNC: If the character speaks, the Action MUST include "speaking to the camera".
+            3. LIP SYNC MANDATORY: If the character speaks, the Action MUST explicitly say: "The character is speaking to the camera. Mouth moving in sync with speech."
+            4. NO NARRATION: Do NOT describe the scene as a "documentary" or "b-roll". The character MUST be present and acting.
             
             Example Visual:
-            "Subject: The character in the image. Action: Speaking to the camera with an excited expression, leaning in. Environment: A neon-lit room. Technical: Low angle, 24fps."
+            "Subject: The character in the image. Action: Speaking directly to the camera with an excited expression, leaning in. Mouth moving. Environment: A neon-lit room. Technical: Low angle, 24fps. No text."
 
             PRIORITY: Focus on MOTIVATED CAMERA MOVEMENT (whip pans, zooms) and EXPRESSIVE FACIAL ACTIONS.
             AVOID: Excessive VFX (confetti, explosions) or "busy" elements unless the script demands it.
@@ -185,6 +189,8 @@ class AgenticApproach:
             Executes a robust DAISYCHAIN generation pipeline.
             Guarantees that the output of Segment N is used as the input for Segment N+1.
             
+            ⚠️ WARNING: This creates a NEW run. If a run already exists, use `process_pipeline_manifest` instead.
+            
             Args:
                 segments_json: A JSON string list of dicts. Example:
                                '[{"prompt": "A cat", "mode": "normal"}, {"prompt": "The cat flies", "mode": "fun"}]'
@@ -193,7 +199,27 @@ class AgenticApproach:
             Returns:
                 Summary of generation with final local paths.
             """
-            return self.pipeline_service.run_daisychain(segments_json, initial_image_url)
+            # SAFEGUARD: Block if a run already exists
+            if self.session_state and self.session_state.current_run_id:
+                existing_run = self.session_state.current_run_id
+                return (f"⛔ BLOCKED: A run already exists (Run ID: {existing_run}). "
+                        f"Use `process_pipeline_manifest('{existing_run}', steps=1)` to continue, "
+                        f"or `reset_session()` to start fresh.")
+            
+            result = self.pipeline_service.run_daisychain(segments_json, initial_image_url)
+            
+            # AUTO-SET: Extract run_id from result and lock it in session
+            if self.session_state and result.startswith("RUN_ID:"):
+                try:
+                    # Parse "RUN_ID: abc123\n..." format
+                    run_id = result.split("\n")[0].replace("RUN_ID:", "").strip()
+                    self.session_state.current_run_id = run_id
+                    print(f"[Session] AUTO-LOCKED Run ID: {run_id}")
+                    result += f"\n\n✅ Session AUTO-LOCKED to Run ID: {run_id}"
+                except Exception as e:
+                    print(f"[Session] Warning: Could not auto-lock run: {e}")
+            
+            return result
 
         @function_tool
         def stitch_videos(video_paths: str) -> str:
@@ -203,6 +229,7 @@ class AgenticApproach:
             Args:
                 video_paths: A JSON string list of absolute file paths to the videos. 
                              Example: '["C:/path/to/vid1.mp4", "C:/path/to/vid2.mp4"]'
+                             OR: '["C:/path/to/manifest_1234.json"]' to automatically load from a run.
             
             Returns:
                 Path to the stitched video.
@@ -247,6 +274,230 @@ class AgenticApproach:
             except Exception as e:
                 return f"Error uploading image: {e}"
 
+        @function_tool
+        def get_pipeline_manifest(run_id_or_path: str) -> str:
+            """
+            Retrieves the JSON manifest for a specific run.
+            Use this to check the status of segments, find file paths, or review generated prompts.
+            Args:
+                run_id_or_path: The 'run_id' (e.g. 'a1b2c3d4') OR the full path to 'manifest_....json'.
+            """
+            return self.pipeline_service.get_manifest(run_id_or_path)
+
+        @function_tool
+        def update_segment_status(run_id_or_path: str, segment_index: int, status: str, notes: str = None) -> str:
+            """
+            Updates the status of a segment in the manifest (e.g., 'approved', 'rejected', 'needs_regenerating').
+            Args:
+                run_id_or_path: Run ID or Manifest Path.
+                segment_index: The index of the segment (1-based).
+                status: New status string.
+                notes: Optional notes (e.g. "Too shaky, need to retry").
+            """
+            return self.pipeline_service.update_segment_status(run_id_or_path, segment_index, status, notes)
+
+        @function_tool
+        def process_pipeline_manifest(run_id_or_path: str, steps: int = 1) -> str:
+            """
+            Executes or Resumes a video generation pipeline based on its Manifest.
+            Use this to:
+            1. Retry failed segments.
+            2. Resume a stopped job.
+            3. Process a manually created manifest.
+            4. Approve/Continue to the next segment.
+            
+            Args:
+                run_id_or_path: Run ID (e.g. 'a1b2c3d4') OR Path.
+                steps: LIMIT of segments to process. Defaults to 1 (Step-by-Step). Set to 100 for "auto-run".
+            """
+            return self.pipeline_service.process_manifest(run_id_or_path, limit=steps)
+
+        @function_tool
+        def edit_pipeline_manifest(run_id: str, modifications_json: str) -> str:
+            """
+            Edits an existing pipeline manifest WITHOUT creating a new one.
+            Use this to Swap segments, Update prompts, or Delete segments.
+            
+            Args:
+                run_id: The 8-char Run ID (e.g. 'a1b2c3d4').
+                modifications_json: JSON string of list of dicts.
+                    Examples:
+                    '[{"action": "swap", "seg_a": 1, "seg_b": 2}]'
+                    '[{"action": "update_prompt", "index": 1, "prompt": "New text..."}]'
+                    '[{"action": "delete", "index": 3}]'
+            """
+            import json
+            try:
+                mods = json.loads(modifications_json)
+                return self.pipeline_service.edit_manifest(run_id, mods)
+            except Exception as e:
+                return f"Error parsing modifications JSON: {e}"
+
+        # --- Session State Tools ---
+        
+        @function_tool
+        def set_current_run(run_id: str) -> str:
+            """
+            Sets the active run for this session. All subsequent operations will use this run.
+            Call this AFTER creating a new run with run_daisychain_pipeline.
+            
+            Args:
+                run_id: The 8-char Run ID from a previous pipeline creation.
+            """
+            if self.session_state:
+                self.session_state.current_run_id = run_id
+                return f"Session active run set to: {run_id}"
+            return "Warning: No session state available."
+
+        @function_tool
+        def approve_segment(segment_index: int, video_path: str) -> str:
+            """
+            Marks a segment as APPROVED. Stores its path and updates the manifest.
+            Use this when the user says "approved", "looks good", "I like it", etc.
+            
+            Args:
+                segment_index: The segment number (1-based).
+                video_path: The local file path of the approved video.
+            """
+            if self.session_state:
+                self.session_state.approved_segments[segment_index] = video_path
+                
+                # Also update manifest if we have a current run
+                if self.session_state.current_run_id:
+                    result = self.pipeline_service.update_segment_status(
+                        self.session_state.current_run_id, 
+                        segment_index, 
+                        "approved",
+                        notes=f"Approved at session, path: {video_path}"
+                    )
+                    return f"Segment {segment_index} approved! Path stored: {video_path}\n{result}"
+                    
+                return f"Segment {segment_index} approved! Path stored: {video_path}"
+            return "Warning: No session state available."
+
+        @function_tool
+        def lock_script(script_json: str) -> str:
+            """
+            Locks the current script so retries don't regenerate it.
+            Call this after the user approves a script draft (e.g., "I like it", "looks good").
+            
+            Args:
+                script_json: The JSON string of the approved script.
+            """
+            if self.session_state:
+                self.session_state.locked_script = script_json
+                return "Script LOCKED. Use edit_script to modify. Retries will use this exact script."
+            return "Warning: No session state available."
+
+        @function_tool
+        def get_locked_script() -> str:
+            """
+            Returns the locked script for this session.
+            Use this when retrying generation to get the original approved script.
+            """
+            if self.session_state and self.session_state.locked_script:
+                return self.session_state.locked_script
+            return "No script locked. Call consult_expert_writer first, then lock_script after approval."
+
+        @function_tool
+        def resume_pipeline_run(from_segment: int = None) -> str:
+            """
+            Resumes the current session's run from a specific segment.
+            Optionally resets a segment (and all after) to 'pending' for retry.
+            
+            Args:
+                from_segment: Optional segment index to reset and resume from.
+                              If None, just continues from where it left off.
+            """
+            if self.session_state and self.session_state.current_run_id:
+                return self.pipeline_service.resume_run(
+                    self.session_state.current_run_id, 
+                    from_segment=from_segment
+                )
+            return "Error: No active run in session. Use set_current_run first."
+
+        @function_tool
+        def get_session_status() -> str:
+            """
+            Returns the current session state including active run, approved segments, and script lock status.
+            Use this to check what's been done in this session.
+            """
+            if self.session_state:
+                status = []
+                status.append(f"Active Run: {self.session_state.current_run_id or 'None'}")
+                status.append(f"Approved Segments: {list(self.session_state.approved_segments.keys()) or 'None'}")
+                status.append(f"Script Locked: {'Yes' if self.session_state.locked_script else 'No'}")
+                return "\n".join(status)
+            return "No session state available."
+
+        @function_tool
+        def edit_segment_prompt(segment_index: int, new_prompt: str = None, prompt_edit: str = None) -> str:
+            """
+            Edits a segment's prompt without regenerating the entire script.
+            Use this when the user wants to tweak a specific segment before retrying.
+            
+            Args:
+                segment_index: The segment number (1-based) to edit.
+                new_prompt: Optional. Complete replacement prompt.
+                prompt_edit: Optional. Instructions for how to modify the existing prompt
+                             (e.g., "make it more energetic", "remove the mention of crypto").
+            """
+            if not self.session_state or not self.session_state.current_run_id:
+                return "Error: No active run. Use set_current_run first."
+            
+            run_id = self.session_state.current_run_id
+            
+            if new_prompt:
+                # Direct replacement
+                mods = [{"action": "update_prompt", "index": segment_index, "prompt": new_prompt}]
+                result = self.pipeline_service.edit_manifest(run_id, mods)
+                return f"Segment {segment_index} prompt replaced.\n{result}"
+            elif prompt_edit:
+                # Get current prompt and ask LLM to modify it
+                manifest = self.pipeline_service.get_manifest(run_id)
+                try:
+                    data = json.loads(manifest)
+                    seg = next((s for s in data["segments"] if s["index"] == segment_index), None)
+                    if not seg:
+                        return f"Error: Segment {segment_index} not found."
+                    
+                    current_prompt = seg.get("prompt", "")
+                    
+                    # Use creative LLM to edit
+                    edit_prompt = f"""
+                    Edit the following video generation prompt based on the user's instructions.
+                    
+                    CURRENT PROMPT:
+                    {current_prompt}
+                    
+                    USER'S EDIT REQUEST:
+                    {prompt_edit}
+                    
+                    Return ONLY the edited prompt, nothing else.
+                    """
+                    
+                    edited_prompt = self.creative_llm.generate_completion(edit_prompt)
+                    edited_prompt = edited_prompt.strip()
+                    
+                    mods = [{"action": "update_prompt", "index": segment_index, "prompt": edited_prompt}]
+                    result = self.pipeline_service.edit_manifest(run_id, mods)
+                    return f"Segment {segment_index} prompt edited.\nNew prompt: {edited_prompt[:100]}...\n{result}"
+                    
+                except Exception as e:
+                    return f"Error editing prompt: {e}"
+            else:
+                return "Error: Provide either new_prompt or prompt_edit."
+
+        @function_tool
+        def reset_session() -> str:
+            """
+            Resets the session state completely.
+            Use this to start fresh without restarting the CLI.
+            """
+            if self.session_state:
+                self.session_state.reset()
+                return "Session reset. Ready for a new video project."
+            return "No session state available."
 
 
         @function_tool
@@ -386,7 +637,7 @@ except Exception as e:
             return self.video_service.extend_segment(video_path, prompt, mode)
 
         @function_tool
-        def advanced_voice_change(video_path: str, voice_id: str = "JBFqnCBsd6RMkjVDRZzb") -> str:
+        def advanced_voice_change(video_path: str, voice_id: str = "JBFqnCBsd6RMkjVDRZzb", skip_kie: bool = False) -> str:
             """
             Advanced Audio Pipeline:
             1. Extracts audio from video.
@@ -394,17 +645,32 @@ except Exception as e:
             3. Uses ElevenLabs to change the voice (Speech-to-Speech) while keeping pacing.
             4. Remarries audio to video.
             
+            Caching: On retry, if KIE was already done for this video, the cleaned audio is reused.
+            
             Args:
                 video_path: Path to video file.
                 voice_id: ElevenLabs Voice ID (default: 'Nicole').
+                skip_kie: Force skip KIE isolation (use cached or raw audio).
             """
             print(f"[Tool: Adv.Voice] Starting advanced pipeline for {video_path}...")
             
-            # 1. Extract Audio
             import uuid
-            audio_name = f"extracted_audio_{uuid.uuid4().hex[:6]}.mp3"
+            cleaned_local = None
             
-            extract_script = f"""
+            # Check session cache for previously cleaned audio for THIS video
+            cache_key = os.path.normpath(video_path)
+            cached = self.session_state.cleaned_audio_cache.get(cache_key) if self.session_state else None
+            
+            if cached and os.path.exists(cached.get("local", "")):
+                print(f"  > Using CACHED cleaned audio (KIE skip): {cached['local']}")
+                cleaned_local = cached["local"]
+            else:
+                # Full pipeline: Extract -> Upload -> KIE -> Download
+                
+                # 1. Extract Audio
+                audio_name = f"extracted_audio_{uuid.uuid4().hex[:6]}.mp3"
+                
+                extract_script = f"""
 import os
 from moviepy import VideoFileClip
 video_path = r"{video_path}"
@@ -419,46 +685,58 @@ try:
 except Exception as e:
     print(f"EXTRACT_ERROR: {{e}}")
 """
-            log = self.moviepy_service.run_script(extract_script)
-            extracted_audio_path = os.path.join(os.getcwd(), "scorsese", audio_name)
-            
-            if not os.path.exists(extracted_audio_path):
-                return f"Failed to extract audio. Log: {log}"
+                log = self.moviepy_service.run_script(extract_script)
+                extracted_audio_path = os.path.join(os.getcwd(), "scorsese", audio_name)
+                
+                if not os.path.exists(extracted_audio_path):
+                    return f"Failed to extract audio. Log: {log}"
+                
+                try:
+                    # 2. Upload to Public URL (for KIE)
+                    print(f"  > Uploading audio for KIE processing...")
+                    public_url = self.image_upload_service.upload_image(extracted_audio_path)
+                    print(f"  > Audio URL: {public_url}")
+                    
+                    # 3. KIE Audio Isolation
+                    print(f"  > Submitting KIE Isolation task...")
+                    task_id = self.kie.isolate_audio(public_url)
+                    
+                    print(f"  > Waiting for isolation (Task: {task_id})...")
+                    status = self.kie.wait_for_task(task_id, timeout=300)
+                    
+                    if status.get("state") != "success":
+                        return f"KIE Isolation failed: {status.get('failMsg')}"
+                    
+                    cleaned_audio_urls = status.get("video_urls", [])
+                    if not cleaned_audio_urls:
+                        return "KIE Success but no audio URL found."
+                    
+                    cleaned_url = cleaned_audio_urls[0]
+                    print(f"  > Cleaned Audio URL: {cleaned_url}")
+                    
+                    # 4. Download Cleaned Audio
+                    cleaned_local = _download_to_temp(cleaned_url, suffix=".mp3")
+                    if not cleaned_local:
+                        return "Failed to download cleaned audio."
+                    
+                    # Cache the cleaned audio for potential retries
+                    if self.session_state:
+                        self.session_state.cleaned_audio_cache[cache_key] = {
+                            "url": cleaned_url,
+                            "local": cleaned_local
+                        }
+                        print(f"  > Cleaned audio CACHED for retry")
+                    
+                    # Cleanup extracted (raw) audio
+                    try:
+                        os.remove(extracted_audio_path)
+                    except:
+                        pass
+                        
+                except Exception as e:
+                    return f"KIE Pipeline Error: {e}"
             
             try:
-                # 2. Upload to Public URL (for KIE)
-                # Assuming image_upload_service handles general file uploads via 0x0.st
-                print(f"  > Uploading audio for KIE processing...")
-                public_url = self.image_upload_service.upload_image(extracted_audio_path)
-                print(f"  > Audio URL: {public_url}")
-                
-                # 3. KIE Audio Isolation
-                print(f"  > Submitting KIE Isolation task...")
-                task_id = self.kie.isolate_audio(public_url)
-                
-                print(f"  > Waiting for isolation (Task: {task_id})...")
-                status = self.kie.wait_for_task(task_id, timeout=300)
-                
-                if status.get("state") != "success":
-                    return f"KIE Isolation failed: {status.get('failMsg')}"
-                
-                # KIE returns a resultJson with resultUrls (usually list)
-                # Check structure from docs or logs. KIE client parse logic handles json load.
-                # 'video_urls' in wait_for_task might be misnamed if we reuse it, but let's check KIEClient.get_task_status
-                # It puts 'video_urls' -> res_json.get('resultUrls', [])
-                
-                cleaned_audio_urls = status.get("video_urls", [])
-                if not cleaned_audio_urls:
-                    return "KIE Success but no audio URL found."
-                
-                cleaned_url = cleaned_audio_urls[0]
-                print(f"  > Cleaned Audio URL: {cleaned_url}")
-                
-                # 4. Download Cleaned Audio
-                cleaned_local = _download_to_temp(cleaned_url, suffix=".mp3")
-                if not cleaned_local:
-                    return "Failed to download cleaned audio."
-                
                 # 5. ElevenLabs Voice Change
                 print(f"  > Changing Voice (ID: {voice_id})...")
                 final_audio_path = self.elevenlabs_service.change_voice(cleaned_local, voice_id)
@@ -492,23 +770,26 @@ except Exception as e:
 """
                 merge_log = self.moviepy_service.run_script(merge_script, save_name="merge_voice")
                 
-                # Cleanup temps
+                # Cleanup voice-changed audio (but keep cached cleaned audio for potential re-retries)
                 try: 
-                    os.remove(extracted_audio_path)
-                    os.remove(cleaned_local)
                     os.remove(final_audio_path)
                 except: pass
                 
                 if "MERGE_SUCCESS" in merge_log:
+                    # Clear cache on success (full pipeline done)
+                    if self.session_state and cache_key in self.session_state.cleaned_audio_cache:
+                        try:
+                            cached_path = self.session_state.cleaned_audio_cache[cache_key].get("local")
+                            if cached_path and os.path.exists(cached_path):
+                                os.remove(cached_path)
+                        except: pass
+                        del self.session_state.cleaned_audio_cache[cache_key]
                     return f"SUCCESS. Video with replaced voice: {final_video_path}"
                 else:
                     return f"Failed to merge final video. Log: {merge_log}"
 
             except Exception as e:
-                return f"Advanced Pipeline Error: {e}"
-
-            except Exception as e:
-                return f"Advanced Pipeline Error: {e}"
+                return f"ElevenLabs/Merge Error: {e}. Cached cleaned audio preserved for retry."
 
         @function_tool
         def generate_manim_animation(prompt: str) -> str:
@@ -630,15 +911,27 @@ except Exception as e:
             name="Drafter",
             model=self.logic_model,
             instructions="""
-            ROLE: Proxy for the Expert Writer Tool.
+            You are the SCRIPT DEPARTMENT for Martin Scorsese's viral video production studio.
+            
+            YOUR MISSION: Draft scripts that will become legendary content.
+            
+            PERSONALITY:
+            - You're working for a legendary director who demands excellence
+            - Be confident, creative, and efficient
+            - After drafting, PUSH the user towards the next step
+            
+            WORKFLOW:
+            1. Call `consult_expert_writer` with the user's idea.
+            2. Present the script cleanly.
+            3. ALWAYS end with a call to action like:
+               "🎬 The script is ready, boss! Say **'approved'** and we'll start rolling cameras on Segment 1."
+               OR
+               "Ready when you are! Just say **'produce it'** or **'approved'** to begin production."
             
             RULES:
-            1. You DO NOT write scripts. You DO NOT draft content.
-            2. For ANY request regarding a script, video idea, or creative text, you MUST call the `consult_expert_writer` tool.
-            3. Do not ask for more info. Just call the tool with what you have.
-            4. Output the tool's response verbatim.
-            
-            User Request -> Call `consult_expert_writer` -> Output Result.
+            1. You DO NOT write scripts yourself. Call the tool.
+            2. Do not ask for more info - just call the tool with what you have.
+            3. ALWAYS suggest the next step after presenting the script.
             """,
             tools=[consult_expert_writer]
         )
@@ -647,14 +940,73 @@ except Exception as e:
             name="Producer",
             model=self.logic_model,
             instructions="""
-            You are a Video Producer.
-            Your job is to take a finished script and produce it.
+            You are the EXECUTIVE PRODUCER for Scorsese's viral video studio.
+            
+            🎬 THE VISION: You're making FILMS, not just clips. Every project follows this pipeline:
+            
+            PRODUCTION PIPELINE:
+            1. 📝 SCRIPT → Get approved script from Drafter
+            2. 🎥 SEGMENT 1 → Generate, show to director for approval
+            3. 🎥 SEGMENT 2 → Generate using last frame continuity
+            4. ... (repeat for all segments)
+            5. 🎞️ STITCH → Combine all approved segments
+            6. 🎬 FINAL CUT → Deliver the masterpiece
+            
+            YOUR PERSONALITY:
+            - You're working for SCORSESE. Mediocrity is not an option.
+            - Be PROACTIVE. After each step, suggest the next one.
+            - Keep momentum. The director wants to see this FINISHED.
+            - Celebrate wins: "Segment 1 is looking FIRE 🔥 Ready for Segment 2?"
+            
+            AFTER EVERY ACTION, suggest next step:
+            - After segment generation: "Segment X complete! Say **'approved'** to lock it in, or **'retry'** to try again."
+            - After approval: "Locked! Ready to roll on Segment Y? Say **'next'** or **'generate segment Y'**."
+            - After final segment: "All segments done! Say **'stitch'** to create the final cut!"
+            - After stitching: "🎬 THE FILM IS COMPLETE! Your masterpiece awaits."
+            
+            ## APPROVAL HANDLING (PRIORITY)
+            
+            ⚠️ CRITICAL RULE: ONE SEGMENT PER TURN ⚠️
+            - After generating ANY segment, you MUST STOP and wait for user approval.
+            - NEVER generate Segment 2 immediately after Segment 1 in a single turn.
+            - NEVER call `run_daisychain_pipeline` if an active run already exists.
+            - ALWAYS ask "Ready for Segment N?" and WAIT for user response.
+            
+            When user says "approved", "looks good", "I like it", "nice", etc.:
+            
+            1. FIRST: Call `get_session_status()` to see current state.
+            2. IF no active run exists:
+               - The user approved a SCRIPT draft from the Drafter.
+               - Call `lock_script(script_json)` with the script from the conversation.
+               - Then call `run_daisychain_pipeline(...)` to start production (generates Segment 1 ONLY).
+               - Immediately call `set_current_run(run_id)` with the returned run_id.
+               - ⛔ STOP HERE. Tell them: "🎬 Segment 1 is ready! Say **'approved'** to lock it in and continue to Segment 2."
+               - DO NOT auto-generate Segment 2. WAIT for user.
+            3. IF an active run exists:
+               - The user approved a generated SEGMENT.
+               - Call `approve_segment(segment_index, video_path)`.
+               - Check if more segments remain:
+                 - If YES: Ask "🎬 Locked! Ready to roll on Segment N? Say **'next'** or **'approved'** to generate it."
+                 - ⛔ DO NOT auto-generate. WAIT for user to say "next" or "approved" again.
+                 - If all done: "🎬 All segments approved! Say **'stitch'** for the final cut!"
+            
+            When user says "next", "continue", "generate segment N":
+            - Call `process_pipeline_manifest(run_id, steps=1)` to generate the NEXT pending segment.
+            - ⛔ STOP after generation. Ask for approval again.
+            
+            When user says "retry", "again", "try again":
+            - Call `resume_pipeline_run(from_segment=N)` where N is the segment to retry.
+            - Do NOT create a new run!
             
             CRITICAL INSTRUCTIONS:
-            1. For each segment, construct a COMPOSITE prompt starting with the DIALOGUE.
-               - Format: "The character looks at the camera and says: '{spoken}'. {visual}"
-               - Example: "The character looks at the camera and says: 'Deal with it.' Subject: The character in the image. Action: Speaking to camera. Environment: Sunny beach."
-               - IMPORTANT: The "says: '{spoken}'" part MUST be first to guarantee lip-sync.
+            1. For each segment, construct a prompt appropriate to the content type:
+               - **TALKING HEAD** (character speaks to camera): 
+                 Format: "Using the attached image as reference, animate the character speaking. The character says: '{spoken}'. {visual_description}"
+               - **ACTION/SCENE** (no dialogue, just motion):
+                 Format: "Using the attached image as reference, animate: {action_description}. {visual_details}"
+               - **PRODUCT/OBJECT** (showing something):
+                 Format: "Using the attached image as reference, animate the scene: {description}"
+               - Use descriptive terms that match the content (e.g., "lip-sync" only if there's dialogue).
             4. EXECUTION STRATEGY:
                - **GOLDEN RULE**: If the video has multiple segments that tell a STORY (Seg 1 -> Seg 2), you **MUST** use `run_daisychain_pipeline`.
                  -> This handles the "Seg 1 Last Frame -> Seg 2 Input" continuity automatically.
@@ -685,12 +1037,64 @@ except Exception as e:
                - Use THAT url as the `image_url` for the specific segment.
                - DO NOT default to the original start image unless it's Segment 1.
                
-            8. Monitor status and report final URLs.
-            9. LOCAL FILES: If you are given a local file path (e.g. from the Editor), you MUST call `upload_local_image` first to get a URL!
-            10. EXTENSIONS: If the user asks to "extend" a video or "continue" a segment, you MUST use `extend_video_segment`. DO NOT use `run_daisychain_pipeline` for extensions.
-            """,
-            tools=[generate_video_segment, check_video_status, upload_local_image, execute_editor_script, run_daisychain_pipeline, extract_and_upload_last_frame, stitch_videos, add_background_music, overlay_text, extend_video_segment, advanced_voice_change, generate_manim_animation, overlay_foreground_video, generate_music_track]
-        )
+             7. REGENERATION / RESUME:
+                - If the user asks to "regenerate segment 2" or "redo the last one" in a chain:
+                - You MUST look at the previous tool output for "New Input URL" or "extracted frame".
+                - Use THAT url as the `image_url` for the specific segment.
+                - DO NOT default to the original start image unless it's Segment 1.
+                
+             8. STEP-BY-STEP APPROVAL (CRITICAL):
+                - The user wants to APPROVE every segment.
+                - The tool `process_pipeline_manifest` defaults to `steps=1`. USE THIS DEFAULT.
+                - DO NOT run the whole chain at once unless explicitly told to "auto-run everything".
+                
+             9. FORBIDDEN ACTIONS:
+                - DO NOT use `generate_video_segment` for ANY task involving more than 1 segment.
+                - DO NOT manually loop over segments using `generate_video_segment`. You WILL break continuity.
+                - ALWAYS use `run_daisychain_pipeline` for NEW sequences.
+                - ALWAYS use `process_pipeline_manifest` for RESUMING/RETRYING sequences.
+                
+             10. Monitor status and report final URLs.
+             13. EDITING PLANS (SINGLE MANIFEST POLICY):
+                - **CRITICAL**: Do NOT create a new pipeline (`run_daisychain_pipeline`) if checking, fixing, or modifying an existing job.
+                - **ALWAYS** reuse the existing `run_id`.
+                - If the user says "Swap segment 1 and 2", "Change the script", or "Use a different first frame":
+                  1. Call `edit_pipeline_manifest(run_id, modifications='[...]')`.
+                     (Supported actions: 'swap', 'update_prompt', 'delete', 'update_image')
+                  2. THEN call `process_pipeline_manifest(run_id)` to execute.
+                - **NEVER** leave a litter of "manifest_..." files. Keep it cleaner.
+                
+             14. URL HANDLING (CRITICAL):
+                - NEVER remove query parameters (e.g. `?ex=...`) from image URLs.
+                - Discord/CDN links REQUIRE these parameters to work. Treating them as "extra" breaks the link.
+                - Pass the FULL URL string exactly as given by the user or tool.
+                
+             ## SESSION RULES (CRITICAL - PREVENTS RUN MULTIPLICATION)
+             
+             15. SINGLE RUN PRINCIPLE:
+                - After creating a run with `run_daisychain_pipeline`, IMMEDIATELY call `set_current_run(run_id)`.
+                - If a run already exists in session (check with `get_session_status`), NEVER call `run_daisychain_pipeline`.
+                - Use `process_pipeline_manifest` or `resume_pipeline_run` to continue existing runs.
+                
+             16. APPROVAL WORKFLOW:
+                - After generating a segment, WAIT for user response.
+                - If user says "approved", "looks good", "I like it", "nice": Call `approve_segment(index, path)`.
+                - If user says "retry", "again", "redo": Call `resume_pipeline_run(from_segment=N)` to retry.
+                - NEVER create a new run for retries!
+                
+             17. SCRIPT LOCKING:
+                - When user approves the script draft, call `lock_script(script_json)`.
+                - For retries, use `get_locked_script()` instead of calling `consult_expert_writer` again.
+                - Only call `consult_expert_writer` if user explicitly asks to "edit script" or "rewrite".
+                
+             18. LOCAL FILE HANDLING:
+                - When user provides a local path (e.g., `c:\\path\\to\\video.mp4`):
+                  a. First call `upload_local_image(path)` to get a public URL.
+                  b. Then use that URL in subsequent operations.
+                - NEVER pass raw local paths to video generation.
+             """,
+             tools=[generate_video_segment, check_video_status, upload_local_image, execute_editor_script, run_daisychain_pipeline, extract_and_upload_last_frame, stitch_videos, add_background_music, overlay_text, extend_video_segment, advanced_voice_change, generate_manim_animation, overlay_foreground_video, generate_music_track, get_pipeline_manifest, update_segment_status, process_pipeline_manifest, edit_pipeline_manifest, set_current_run, approve_segment, lock_script, get_locked_script, resume_pipeline_run, get_session_status, edit_segment_prompt, reset_session]
+         )
 
 
         self.editor_agent = Agent(
@@ -737,28 +1141,37 @@ except Exception as e:
             name="Triage",
             model=self.logic_model,
             instructions="""
-            You are the Project Manager for Scorsese.
-            YOUR GOAL: Route the user to the right specialist.
+            You are the PROJECT COORDINATOR for Scorsese's legendary video studio.
             
-            ROUTING RULES:
-            1. [Drafter]: Use if the user describes a TOPIC, IDEA, or says "talks about X", "script about Y", "make a video where...". 
-               - ALWAYS Assume drafting is needed unless the user provides a pre-written script.
-               - Even if they say "Make a video about cats", send to Drafter first to write the script.
+            🎬 YOUR MISSION: Keep the production moving! Route requests to the right department.
             
-            2. [Producer]: Use ONLY if the user:
-               - Explicitly provides a finished script/JSON.
-               - Says "Produce this" (referring to previous chat script).
-               - Says "Run the pipeline" or "Daisychain these".
-               - Says "Stitch them", "Combine them", "Join them" (referring to generated segments).
+            ROUTING RULES (in priority order):
             
-            3. [Editor]: Use for "edit", "cut", "trim", "add text", "upload" (if NOT simple stitching).
+            1. [Producer] - APPROVALS & PRODUCTION COMMANDS (HIGHEST PRIORITY):
+               Keywords: "approved", "looks good", "I like it", "nice", "good", "perfect", "yes", "ok", "let's go", "do it"
+               Keywords: "retry", "again", "redo", "try again", "one more time"
+               Keywords: "next", "next segment", "segment 2", "produce", "generate", "roll", "action"
+               Keywords: "stitch", "combine", "join", "final cut", "finish it", "wrap it up"
+               -> Send to Producer immediately.
             
-            4. [Producer] (Exception): If input is JUST a local file path that needs uploading/generating without a script, send to Producer.
+            2. [Drafter] - NEW IDEAS & SCRIPTS:
+               Keywords: "make a video", "create", "I want", "talks about", "script about", "video where"
+               -> User has an IDEA that needs a script. Send to Drafter.
+               -> Even "Make a video about cats" needs drafting first.
             
-            Example:
-            User: "I need a video about cats." -> Drafter (needs script).
-            User: "Make a video where she says hello." -> Drafter (needs script).
-            User: "Produce that." -> Producer.
+            3. [Editor] - POST-PRODUCTION:
+               Keywords: "edit", "cut", "trim", "add text", "overlay", "music", "sound"
+               -> Technical editing work. Send to Editor.
+            
+            GOLDEN RULE: When in doubt about approval words, send to Producer.
+            
+            Examples:
+            "approved" -> Producer
+            "I like it" -> Producer  
+            "next" -> Producer
+            "stitch them" -> Producer
+            "make a video about crypto" -> Drafter
+            "edit the audio" -> Editor
             """,
             handoffs=[self.drafter_agent, self.producer_agent, self.editor_agent]
         )

@@ -2,6 +2,8 @@ import sys
 import os
 import asyncio
 import argparse
+from dataclasses import dataclass, field
+from typing import Optional
 from scorsese.services.kie_client import KIEClient
 from scorsese.approaches.agentic import AgenticApproach
 
@@ -10,6 +12,75 @@ try:
     from agents import run_demo_loop
 except ImportError:
     run_demo_loop = None
+
+
+@dataclass
+class SessionState:
+    """
+    Tracks state across conversation messages within a session.
+    Prevents run multiplication and enables approval workflow.
+    """
+    current_run_id: Optional[str] = None
+    approved_segments: dict = field(default_factory=dict)  # segment_index -> video_path
+    locked_script: Optional[str] = None  # JSON of the approved script
+    cleaned_audio_cache: dict = field(default_factory=dict)  # video_path -> {"url": cleaned_url, "local": local_path}
+    
+    # Default path for session persistence (in scorsese/output/)
+    _session_file: str = field(default="scorsese/output/session_state.json", repr=False)
+    
+    def reset(self):
+        """Clears all session state."""
+        self.current_run_id = None
+        self.approved_segments = {}
+        self.locked_script = None
+        self.cleaned_audio_cache = {}
+        
+    def __str__(self):
+        return (f"SessionState(run={self.current_run_id}, "
+                f"approved={list(self.approved_segments.keys())}, "
+                f"script_locked={self.locked_script is not None})")
+    
+    def save_to_file(self, path: str = None):
+        """
+        Saves session state to a JSON file for persistence across restarts.
+        Enable this for deployment scenarios.
+        """
+        import json
+        save_path = path or self._session_file
+        data = {
+            "current_run_id": self.current_run_id,
+            "approved_segments": self.approved_segments,
+            "locked_script": self.locked_script,
+            "cleaned_audio_cache": self.cleaned_audio_cache
+        }
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        with open(save_path, 'w') as f:
+            json.dump(data, f, indent=2)
+        return save_path
+    
+    @classmethod
+    def load_from_file(cls, path: str = "scorsese/output/session_state.json"):
+        """
+        Loads session state from a JSON file.
+        Returns a new SessionState with defaults if file doesn't exist.
+        """
+        import json
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    data = json.load(f)
+                state = cls(
+                    current_run_id=data.get("current_run_id"),
+                    approved_segments=data.get("approved_segments", {}),
+                    locked_script=data.get("locked_script"),
+                    cleaned_audio_cache=data.get("cleaned_audio_cache", {})
+                )
+                print(f"[Session] Restored from: {path}")
+                return state
+            except Exception as e:
+                print(f"[Session] Failed to load from {path}: {e}")
+        return cls()
+
 
 def load_dotenv():
     """Simple .env loader to avoid dependencies."""
@@ -50,6 +121,7 @@ def main():
     load_dotenv()
     parser = argparse.ArgumentParser(description="Scorsese: AI Viral Video Generator")
     parser.add_argument("--interactive", action="store_true", help="Run in interactive mode")
+    parser.add_argument("--restore", action="store_true", help="Restore previous session state if available")
     
     args, unknown = parser.parse_known_args()
 
@@ -64,11 +136,18 @@ def main():
     
     print(f"Loaded Configuration:\n  Logic Model: {logic_model}\n  Creative Model: {creative_model}")
 
+    # Create or restore Session State
+    if args.restore:
+        session_state = SessionState.load_from_file()
+    else:
+        session_state = SessionState()
+
     kie = KIEClient(api_key=kie_api_key)
     agentic_system = AgenticApproach(
         kie_client=kie,
         logic_model=logic_model, 
-        creative_model=creative_model 
+        creative_model=creative_model,
+        session_state=session_state  # Pass session state
     )
 
     triage_agent = agentic_system.get_triage_agent()
@@ -77,13 +156,14 @@ def main():
     if args.interactive or len(sys.argv) == 1:
         print("\nStarting Scorsese Studio (Manual Mode)...")
         # Explicitly use manual loop to avoid SDK streaming bugs
-        asyncio.run(manual_loop(triage_agent))
+        asyncio.run(manual_loop(triage_agent, session_state))
     else:
         print("Use --interactive to start the studio.")
 
-async def manual_loop(agent):
+async def manual_loop(agent, session_state: SessionState):
     print("---------------------------------------------------------")
-    print("Type 'exit' to quit. You can paste image URLs directly.")
+    print("Type 'exit' to quit. Type 'status' to see session state.")
+    print("You can paste image URLs directly.")
     print("---------------------------------------------------------")
     
     try:
@@ -115,6 +195,29 @@ async def manual_loop(agent):
             
             if not user_input.strip():
                 continue
+            
+            # Built-in commands
+            if user_input.lower() == "status":
+                print(f"\n📊 Session: {session_state}")
+                if session_state.current_run_id:
+                    print(f"   Active Run: {session_state.current_run_id}")
+                if session_state.approved_segments:
+                    print(f"   Approved Segments: {list(session_state.approved_segments.keys())}")
+                if session_state.locked_script:
+                    print(f"   Script: Locked")
+                print("\n   Commands: status, save, reset, exit")
+                continue
+            
+            if user_input.lower() == "save":
+                path = session_state.save_to_file()
+                print(f"\n💾 Session saved to: {path}")
+                print("   Use --restore flag to load on next start.")
+                continue
+            
+            if user_input.lower() == "reset":
+                session_state.reset()
+                print("\n🔄 Session reset. Ready for new project.")
+                continue
 
             print("... thinking ...")
             
@@ -123,12 +226,13 @@ async def manual_loop(agent):
             # If session object isn't supported by this Runner.run signature, use context concatenation?
             # Let's assume modern SDK supports session kwarg.
             
+            # Increase max_turns to allow multi-step workflows (default is 10, which is too low)
             if session:
-                result = await Runner.run(agent, user_input, session=session)
+                result = await Runner.run(agent, user_input, session=session, max_turns=25)
             else:
                 # Poor man's context for fallback
                 # Note: This is hacky for agents, better to have the session working
-                result = await Runner.run(agent, user_input)
+                result = await Runner.run(agent, user_input, max_turns=25)
             
             print(f"\n🤖 **Scorsese**: {result.final_output}")
 

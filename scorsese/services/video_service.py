@@ -96,12 +96,24 @@ except Exception as e:
         except Exception as e:
             return f"Error extending video: {e}"
 
-    def extract_and_upload_last_frame(self, video_url: str) -> str:
-        """Download remote video, extract frame, upload."""
-        # Download
-        temp_vid = self._download_file(video_url, prefix="temp_bridge_")
-        if not temp_vid: 
-            return "Error downloading video."
+    def extract_and_upload_last_frame(self, video_source: str) -> str:
+        """Download remote video OR use local path, extract frame, upload."""
+        temp_vid = None
+        is_temp = False
+        
+        # Handle local paths first
+        if os.path.exists(video_source):
+            print(f"  > Using local file: {video_source}")
+            temp_vid = video_source
+            is_temp = False
+        elif video_source.startswith("http"):
+            # Download remote video
+            temp_vid = self._download_file(video_source, prefix="temp_bridge_")
+            is_temp = True
+            if not temp_vid: 
+                return "Error downloading video."
+        else:
+            return f"Error: Invalid video source (not a URL or local path): {video_source}"
             
         # Extract (reuse extend logic parts, but returns url)
         img_name = f"frame_bridge_{uuid.uuid4().hex[:6]}.png"
@@ -120,9 +132,10 @@ except Exception as e:
         self.moviepy_service.run_script(extraction_script)
         extracted_path = os.path.join(os.getcwd(), "scorsese", img_name)
         
-        # Cleanup video
-        try: os.remove(temp_vid)
-        except: pass
+        # Cleanup temp video (only if we downloaded it)
+        if is_temp and temp_vid:
+            try: os.remove(temp_vid)
+            except: pass
         
         if os.path.exists(extracted_path):
             url = self.upload_service.upload_image(extracted_path)

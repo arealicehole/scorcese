@@ -212,6 +212,76 @@ class KIEClient:
              
         return response["data"]["taskId"]
 
+    # --- Suno Music-Specific Status Methods ---
+    # Suno uses a DIFFERENT endpoint and status format than standard KIE tasks!
+    
+    def get_music_status(self, task_id: str) -> Dict[str, Any]:
+        """
+        Queries the status of a SUNO MUSIC task.
+        Uses /api/v1/generate/record-info (NOT /api/v1/jobs/recordInfo).
+        Suno uses UPPERCASE status: PENDING, TEXT_SUCCESS, FIRST_SUCCESS, SUCCESS, GENERATE_AUDIO_FAILED, etc.
+        """
+        response = self._get("/api/v1/generate/record-info", {"taskId": task_id})
+        
+        if response.get("code") != 200:
+            return {"status": "ERROR", "msg": response.get("msg")}
+
+        data = response.get("data", {})
+        status = data.get("status", "PENDING")  # UPPERCASE: PENDING, SUCCESS, etc.
+        
+        print(f"[KIEClient] Suno task {task_id} status: {status}")
+        
+        result_info = {
+            "task_id": task_id,
+            "status": status,
+            "error_code": data.get("errorCode"),
+            "error_message": data.get("errorMessage"),
+            "audio_urls": []
+        }
+
+        # Check for success states
+        if status in ["SUCCESS", "FIRST_SUCCESS"]:
+            # Audio URLs are nested under response.sunoData[].audioUrl (camelCase!)
+            suno_response = data.get("response", {})
+            suno_data_list = suno_response.get("sunoData", [])
+            
+            for item in suno_data_list:
+                if item.get("audioUrl"):
+                    result_info["audio_urls"].append(item["audioUrl"])
+            
+            # Also store full response for debugging
+            result_info["suno_data"] = suno_data_list
+            
+        return result_info
+
+    def wait_for_music(self, task_id: str, poll_interval: int = 5, timeout: int = 300) -> Dict[str, Any]:
+        """
+        Waits for a SUNO MUSIC task to complete.
+        Uses the Suno-specific status endpoint.
+        """
+        start_time = time.time()
+        while True:
+            status = self.get_music_status(task_id)
+            current_status = status.get("status", "PENDING")
+            
+            # Success states
+            if current_status in ["SUCCESS", "FIRST_SUCCESS"]:
+                status["state"] = "success"  # Normalize for callers expecting lowercase
+                return status
+            
+            # Failure states
+            if current_status in ["CREATE_TASK_FAILED", "GENERATE_AUDIO_FAILED", 
+                                   "CALLBACK_EXCEPTION", "SENSITIVE_WORD_ERROR", "ERROR"]:
+                status["state"] = "fail"
+                status["failMsg"] = status.get("error_message") or current_status
+                return status
+            
+            # Timeout
+            if time.time() - start_time > timeout:
+                raise TimeoutError(f"Suno task {task_id} timed out after {timeout} seconds (status: {current_status})")
+            
+            time.sleep(poll_interval)
+
     def generate_music(self, prompt: str, instrumental: bool = True, model: str = "V5") -> str:
         """
         Creates a music generation task using Suno via KIE.
@@ -219,6 +289,7 @@ class KIEClient:
         Returns taskId.
         """
         if instrumental:
+
             # Custom Mode for Instrumental: style=prompt, prompt(lyrics)=""
             payload = {
                 "model": model,
@@ -226,7 +297,8 @@ class KIEClient:
                 "instrumental": True,
                 "style": prompt[:1000],  # V5 Limit: 1000 chars
                 "title": "Scorese Generated Track",
-                "callBackUrl": "" # Optional but good practice to have key
+                # callBackUrl is REQUIRED by Suno API - use placeholder (we poll for results anyway)
+                "callBackUrl": "https://httpbin.org/post"
             }
         else:
             # Non-Custom Mode for Songs: prompt handles general vibe + auto lyrics
@@ -234,8 +306,9 @@ class KIEClient:
                 "model": model,
                 "customMode": False,
                 "instrumental": False,
-                "prompt": prompt[:500], # Non-custom limit
-                "callBackUrl": ""
+                "prompt": prompt[:500],  # Non-custom limit
+                # callBackUrl is REQUIRED by Suno API - use placeholder (we poll for results anyway)
+                "callBackUrl": "https://httpbin.org/post"
             }
 
         # Endpoint is /api/v1/generate for Music (not standard createTask?)
@@ -246,3 +319,25 @@ class KIEClient:
             raise Exception(f"Failed to create music task: {response.get('msg')}")
             
         return response["data"]["taskId"]
+
+    def add_instrumental(self, upload_url: str, tags: str, title: str, negative_tags: str = "", model: str = "V4_5PLUS", **kwargs) -> str:
+        """
+        Add instrumental accompaniment to an uploaded audio file.
+        Returns taskId.
+        """
+        payload = {
+            "model": model,
+            "uploadUrl": upload_url,
+            "tags": tags[:1000],
+            "title": title[:100],
+            "negativeTags": negative_tags[:1000],
+            "callBackUrl": "https://httpbin.org/post"
+        }
+        # Add any optional parameters like vocalGender, styleWeight, etc.
+        payload.update(kwargs)
+
+        response = self._post("/api/v1/generate/add-instrumental", payload)
+        if response.get("code") == 200:
+            return response["data"]["taskId"]
+        else:
+            raise Exception(f"Failed to create add-instrumental task: {response.get('msg')}")
