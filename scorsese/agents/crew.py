@@ -190,7 +190,9 @@ Return ONLY the JSON array."""
             
             CRITICAL RULES:
             1. ONLY shoot ONE segment per request, then STOP and report back.
-            2. For SEGMENT 1: ALWAYS use the provided image_url. If no image was given, ask Marty for one.
+            2. For SEGMENT 1: 
+               - If Producer provided an image URL → image-to-video with that URL
+               - If NO image provided → text-to-video (leave image_url empty)
             3. For SEGMENT 2+: Use get_last_frame from previous segment's video, then shoot.
             4. After shooting, wait for completion with check_footage, then report the result.
             5. DO NOT shoot the next segment. Return control to Marty for approval.
