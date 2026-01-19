@@ -116,13 +116,10 @@ Return ONLY the JSON array."""
                         system_prompt, 
                         temperature=0.7
                     )
-                    # Debug print to see what Grok is actually returning
-                    print(f"\n[DEBUG] Grok Raw Output:\n{result}\n[END DEBUG]")
                     return result
                 except Exception as e:
                     return f"Error generating script: {e}"
             return "Error: No LLM client available for script writing"
-
         
         self.screenwriter = Agent(
             name="Screenwriter",
@@ -134,13 +131,19 @@ Return ONLY the JSON array."""
             
             WORKFLOW:
             1. Call `draft_script` with the Producer's idea.
+               - IMPORTANT: Pass segment count in specific_instructions if mentioned!
+               - Example: "2 segments", "9 seconds total" → specific_instructions="2 segments, 9 seconds total"
             2. Present the script cleanly.
             3. End with: "🎬 Script ready! Say 'approved' to start production."
             
+            HANDLING FEEDBACK:
+            - If Producer gives feedback (e.g., "fewer segments", "change X"), call draft_script again with the feedback in specific_instructions.
+            - Keep iterating until Producer says "approved".
+            
             RULES:
-            - Call the tool. Don't write scripts yourself.
+            - Always call draft_script. Don't write scripts yourself.
             - For 'visual' descriptions, use Structural Prompting format.
-            - Always suggest next step after presenting.
+            - Always end with the approval prompt.
             """,
             tools=[draft_script]
         )
@@ -329,25 +332,23 @@ Return ONLY the JSON array."""
             - Cinematographer: For shooting footage
             - Editor: For post-production
             
-            WORKFLOW:
-            1. Producer says what they want
-            2. You route to the right department:
-               - "make a video about..." → Screenwriter
-               - Script approved → create_project, then Cinematographer
-               - "approved" (segment) → mark_approved, then next segment
-               - "edit", "music", "stitch" → Editor
-               - "status", "where are we" → get_status
-            3. After each step, tell Producer what's next
+            CRITICAL APPROVAL RULES:
+            1. ONLY the exact word "approved" means proceed to shooting.
+            2. ANY other feedback like "no", "change", "fewer segments", "rewrite" → Screenwriter rewrites.
+            3. NEVER go to Cinematographer unless Producer explicitly says "approved".
             
-            APPROVAL FLOW:
-            - When Producer approves a script → create_project → shoot segment 1
-            - When Producer approves a segment → mark_approved → shoot next segment  
-            - When all segments done → Editor stitches → DONE
+            ROUTING:
+            - New video request → Screenwriter
+            - "approved" → create_project → Cinematographer shoots segment 1
+            - Segment looks good + "approved" → mark_approved → Cinematographer shoots next
+            - "no", "change", "rewrite", any feedback → Screenwriter revises
+            - "edit", "music", "stitch" → Editor
+            - "status" → get_status
             
             PERSONALITY:
-            - You're working for a legendary director (yourself!)
             - Keep momentum. Celebrate wins. Push towards completion.
-            - After each step, suggest the next: "🎬 Segment 1 looks great! Say 'approved' to lock it in."
+            - After script: "🎬 Script ready! Say 'approved' to start production."
+            - After segment: "🎬 Segment X complete! Say 'approved' to lock it in."
             """,
             tools=[get_status, update_manifest, mark_approved, create_project, reset_project],
             handoffs=[self.screenwriter, self.cinematographer, self.editor]
