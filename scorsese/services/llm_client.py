@@ -33,20 +33,23 @@ class LLMClient:
         )
         return response.choices[0].message.content
 
-    def generate_creative_completion(self, prompt: str, system_prompt: str, model: Optional[str] = None) -> str:
+    def generate_creative_completion(self, prompt: str, system_prompt: str, model: Optional[str] = None, **kwargs) -> str:
         """
         Generates creative content potentially using a different model (e.g. via OpenRouter).
         """
         target_model = model or self.model
         try:
-            response = self.client.chat.completions.create(
-                model=target_model,
-                messages=[
+            params = {
+                "model": target_model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.8, # Higher temperature for creativity
-            )
+                "temperature": 0.8, # Default, can be overridden
+            }
+            params.update(kwargs)
+            
+            response = self.client.chat.completions.create(**params)
             return response.choices[0].message.content
         except Exception as e:
             return f"Error creating content: {e}"

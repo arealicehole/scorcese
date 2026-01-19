@@ -111,7 +111,14 @@ Goal: {goal}
 Return ONLY the JSON array."""
                 
                 try:
-                    return self.llm_client.generate_creative_completion(user_prompt, system_prompt)
+                    result = self.llm_client.generate_creative_completion(
+                        user_prompt, 
+                        system_prompt, 
+                        temperature=0.7
+                    )
+                    # Debug print to see what Grok is actually returning
+                    print(f"\n[DEBUG] Grok Raw Output:\n{result}\n[END DEBUG]")
+                    return result
                 except Exception as e:
                     return f"Error generating script: {e}"
             return "Error: No LLM client available for script writing"
