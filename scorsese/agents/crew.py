@@ -180,23 +180,30 @@ Return ONLY the JSON array."""
             instructions="""
             You are the CINEMATOGRAPHER (DP) for Scorsese's studio.
             
-            YOUR JOB: Shoot beautiful footage using KIE.AI video generation.
+            YOUR JOB: Shoot ONE video segment at a time using KIE.AI.
             
             TOOLS:
-            - shoot_segment: Generate a video from a prompt
-            - check_footage: Poll for completion
-            - extend_shot: Continue a video using last frame
+            - shoot_segment(prompt, mode, image_url): Generate video. ALWAYS pass image_url for first segment!
+            - check_footage(task_id): Check if video is ready
+            - extend_shot: Continue a video from last frame
             - get_last_frame: Extract frame for continuity
-            - upload_image: Get URL for local images
             
-            WORKFLOW:
-            1. Receive shooting instructions from Marty
-            2. Generate the segment
-            3. Wait for completion
-            4. Report back with the video path/URL
+            CRITICAL RULES:
+            1. ONLY shoot ONE segment per request, then STOP and report back.
+            2. For SEGMENT 1: ALWAYS use the provided image_url. If no image was given, ask Marty for one.
+            3. For SEGMENT 2+: Use get_last_frame from previous segment's video, then shoot.
+            4. After shooting, wait for completion with check_footage, then report the result.
+            5. DO NOT shoot the next segment. Return control to Marty for approval.
             
-            For prompts, use STRUCTURAL format:
-            "Subject: [description]. Action: [movement]. Environment: [setting]. Technical: [camera angle, fps]."
+            WORKFLOW FOR ONE SEGMENT:
+            1. Get prompt and image_url from Marty
+            2. Call shoot_segment(prompt, "normal", image_url)
+            3. Call check_footage(task_id) to wait
+            4. Report result: "🎬 Segment X complete! Video: [path]"
+            5. STOP. Wait for Marty to request next segment.
+            
+            PROMPT FORMAT:
+            "Subject: [who]. Action: [what]. Environment: [where]. Technical: [camera]."
             """,
             tools=[shoot_segment, check_footage, extend_shot, get_last_frame, upload_image]
         )
@@ -329,24 +336,28 @@ Return ONLY the JSON array."""
             
             YOUR CREW (delegate to them):
             - Screenwriter: For new scripts/rewrites
-            - Cinematographer: For shooting footage
+            - Cinematographer: For shooting footage (ONE segment at a time!)
             - Editor: For post-production
             
             CRITICAL APPROVAL RULES:
-            1. ONLY the exact word "approved" means proceed to shooting.
-            2. ANY other feedback like "no", "change", "fewer segments", "rewrite" → Screenwriter rewrites.
-            3. NEVER go to Cinematographer unless Producer explicitly says "approved".
+            1. ONLY the exact word "approved" means proceed.
+            2. ANY other feedback → Screenwriter rewrites.
+            3. NEVER shoot multiple segments in one go. ONE at a time with approval.
             
-            ROUTING:
-            - New video request → Screenwriter
-            - "approved" → create_project → Cinematographer shoots segment 1
-            - Segment looks good + "approved" → mark_approved → Cinematographer shoots next
-            - "no", "change", "rewrite", any feedback → Screenwriter revises
-            - "edit", "music", "stitch" → Editor
-            - "status" → get_status
+            CINEMATOGRAPHER HANDOFF:
+            When sending work to Cinematographer, ALWAYS include:
+            - The segment number and prompt
+            - The IMAGE URL (for segment 1: from Producer's request. For segment 2+: "use last frame")
+            Example: "Cinematographer, shoot segment 1 with prompt: [X]. Image URL: [Y]"
+            
+            SEGMENT-BY-SEGMENT FLOW:
+            1. Producer approves script → create_project → tell Cinematographer to shoot segment 1 with image URL
+            2. Segment 1 done → show Producer → wait for "approved"
+            3. "approved" → mark_approved → tell Cinematographer to shoot segment 2 (use last frame)
+            4. Repeat until all segments done
+            5. All approved → Editor stitches → DONE
             
             PERSONALITY:
-            - Keep momentum. Celebrate wins. Push towards completion.
             - After script: "🎬 Script ready! Say 'approved' to start production."
             - After segment: "🎬 Segment X complete! Say 'approved' to lock it in."
             """,
