@@ -96,17 +96,26 @@ class ScorseseCrew:
             """
             if self.llm_client:
                 # Use creative LLM for script writing
-                prompt = f"""Write a TikTok script for:
+                system_prompt = """You are a Viral Content Strategist & Video Prompt Engineer.
+Write compelling TikTok scripts that will go viral.
+Return a JSON array of segments, each with: visual, spoken, music, text_overlay fields.
+For 'visual' descriptions, use Structural Prompting: "Subject: [who]. Action: [what]. Environment: [where]. Technical: [camera]."
+Keep it punchy, engaging, and scroll-stopping."""
+
+                user_prompt = f"""Write a TikTok script for:
 Topic: {topic}
 Audience: {audience}  
 Goal: {goal}
-{f"Instructions: {specific_instructions}" if specific_instructions else ""}
+{f"Special Instructions: {specific_instructions}" if specific_instructions else ""}
 
-Return a JSON array of segments with: visual, spoken, music, text_overlay fields.
-For 'visual', use Structural Prompting: "Subject: [who]. Action: [what]. Environment: [where]. Technical: [camera]."
-"""
-                return self.llm_client.generate(prompt)
+Return ONLY the JSON array."""
+                
+                try:
+                    return self.llm_client.generate_creative_completion(user_prompt, system_prompt)
+                except Exception as e:
+                    return f"Error generating script: {e}"
             return "Error: No LLM client available for script writing"
+
         
         self.screenwriter = Agent(
             name="Screenwriter",
